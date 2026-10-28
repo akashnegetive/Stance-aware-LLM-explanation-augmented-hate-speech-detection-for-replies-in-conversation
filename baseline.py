@@ -195,7 +195,7 @@ def main():
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)],
     )
-    trainer.train()
+    train_output = trainer.train()
 
     val_metrics = trainer.evaluate(ds_val, metric_key_prefix="val")
     pred = trainer.predict(ds_test, metric_key_prefix="test")
@@ -208,6 +208,7 @@ def main():
     results = {
         "run_name": run_name,
         "args": vars(args),
+        "train_runtime_sec": train_output.metrics.get("train_runtime"),
         "val": val_metrics,
         "test": pred.metrics,
         "test_report": report,

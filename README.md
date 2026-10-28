@@ -33,6 +33,8 @@ Each run writes `outputs/<run>/results.json`, which holds the metrics, per-class
 
 ### Running on Kaggle
 
+Step-by-step instructions and time estimates for every phase are in [KAGGLE_GUIDE.md](KAGGLE_GUIDE.md). In short:
+
 1. On Kaggle, create a notebook: *File → Import Notebook* → upload `kaggle/phase1_baselines.ipynb`.
 2. Under *Settings*, set **Accelerator: GPU T4 x2** and turn **Internet on**. Turning Internet on needs a phone-verified Kaggle account.
 3. Click **Save Version → Save & Run All (Commit)**. This runs in the background, so you can close the browser.

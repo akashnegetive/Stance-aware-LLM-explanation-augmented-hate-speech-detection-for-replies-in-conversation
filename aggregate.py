@@ -28,6 +28,7 @@ def main():
             "macro_f1": r["test"]["test_macro_f1"],
             "weighted_f1": r["test"]["test_weighted_f1"],
             "accuracy": r["test"]["test_accuracy"],
+            "train_min": (r.get("train_runtime_sec") or 0) / 60,
             **{f"f1_{k}": v["f1-score"] for k, v in rep.items() if isinstance(v, dict) and k not in
                ("macro avg", "weighted avg")},
         })
@@ -43,7 +44,8 @@ def main():
     for setting, runs in groups.items():
         cells = []
         for c in cols:
-            v = np.array([r[c] for r in runs]) * 100
+            # Scores are shown as percentages; train_min is already in minutes.
+            v = np.array([r[c] for r in runs]) * (1 if c == "train_min" else 100)
             cells.append(f"{v.mean():.2f} ± {v.std():.2f}")
         print(f"| {setting} | {len(runs)} | " + " | ".join(cells) + " |")
 
