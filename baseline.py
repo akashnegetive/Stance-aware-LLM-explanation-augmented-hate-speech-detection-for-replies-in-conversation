@@ -16,6 +16,7 @@ directory) exists with the same training settings, the run is skipped instead of
 
 import argparse
 import json
+import math
 import os
 import random
 import shutil
@@ -166,13 +167,17 @@ def main():
     ds_val = PairDataset(val, tokenizer, args.input, args.max_len)
     ds_test = PairDataset(test, tokenizer, args.input, args.max_len)
 
+    # transformers v5 removed `warmup_ratio`; an integer step count works in both v4 and v5.
+    total_steps = math.ceil(len(ds_train) / args.batch_size) * args.epochs
+    warmup_steps = int(args.warmup_ratio * total_steps)
+
     training_args = TrainingArguments(
         output_dir=os.path.join(out_dir, "ckpt"),
         num_train_epochs=args.epochs,
         learning_rate=args.lr,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=64,
-        warmup_ratio=args.warmup_ratio,
+        warmup_steps=warmup_steps,
         weight_decay=args.weight_decay,
         eval_strategy="epoch",
         save_strategy="epoch",
