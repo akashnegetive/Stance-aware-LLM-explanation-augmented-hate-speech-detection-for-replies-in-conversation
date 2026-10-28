@@ -9,12 +9,16 @@ Each line: {"idx": int, "label": "0"|"1"|"2", "context": str, "target": str}
 
 Example:
   python baseline.py --input context_target --model roberta-base --seed 42
+
+Runs are cached: if <output_dir>/<run>/results.json (or the same file under any --prev_results
+directory) exists with the same training settings, the run is skipped instead of retrained.
 """
 
 import argparse
 import json
 import os
 import random
+import shutil
 
 import numpy as np
 import torch
@@ -74,6 +78,29 @@ class PairDataset(Dataset):
         return item
 
 
+# Arguments that only control where files go; they do not change the trained model.
+NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint", "force"}
+
+
+def training_config(args):
+    return {k: v for k, v in vars(args).items() if k not in NON_TRAINING_ARGS}
+
+
+def find_cached_run(run_name, args):
+    """Return the run directory of a finished run with identical training settings, if any."""
+    for base in [args.output_dir] + list(args.prev_results):
+        path = os.path.join(base, run_name, "results.json")
+        if not os.path.isfile(path):
+            continue
+        with open(path) as f:
+            saved = json.load(f)
+        saved_config = {k: v for k, v in saved["args"].items() if k not in NON_TRAINING_ARGS}
+        if saved_config == training_config(args):
+            return os.path.dirname(path)
+        print(f"[{run_name}] found {path} but its settings differ; ignoring it")
+    return None
+
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=-1)
@@ -100,11 +127,22 @@ def main():
     p.add_argument("--patience", type=int, default=3)
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--keep_checkpoint", action="store_true")
+    p.add_argument("--prev_results", nargs="*", default=[],
+                   help="read-only dirs with earlier outputs (e.g. a Kaggle input); finished runs found there are reused")
+    p.add_argument("--force", action="store_true", help="retrain even if a cached result exists")
     args = p.parse_args()
 
     set_seed(args.seed)
     run_name = f"{args.model.replace('/', '_')}_{args.input}{'_silver' if args.use_silver else ''}_s{args.seed}"
     out_dir = os.path.join(args.output_dir, run_name)
+
+    cached = None if args.force else find_cached_run(run_name, args)
+    if cached:
+        if os.path.abspath(cached) != os.path.abspath(out_dir):
+            shutil.copytree(cached, out_dir, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("ckpt"))
+        print(f"[{run_name}] cached result found in {cached}; skipping training")
+        return
     os.makedirs(out_dir, exist_ok=True)
 
     train = read_jsonl(os.path.join(args.data_dir, "gold", "train.jsonl"))
@@ -185,7 +223,6 @@ def main():
                                 "logits": [float(x) for x in logit]}) + "\n")
 
     if not args.keep_checkpoint:
-        import shutil
         shutil.rmtree(os.path.join(out_dir, "ckpt"), ignore_errors=True)
     print(f"[{run_name}] test macro-F1 = {pred.metrics['test_macro_f1']:.4f}  -> {out_dir}/results.json")
 

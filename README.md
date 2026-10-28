@@ -31,6 +31,23 @@ python baseline.py --input context_target --model roberta-base --seed 42 --use_s
 Each run writes `outputs/<run>/results.json`, which holds the metrics, per-class report and confusion matrix. It also writes `test_predictions.jsonl`, the per-example predictions used for significance tests and error analysis.
 `python aggregate.py` summarises all runs.
 
+### Running on Kaggle
+
+1. On Kaggle, create a notebook: *File → Import Notebook* → upload `kaggle/phase1_baselines.ipynb`.
+2. Under *Settings*, set **Accelerator: GPU T4 x2** and turn **Internet on**. Turning Internet on needs a phone-verified Kaggle account.
+3. Click **Save Version → Save & Run All (Commit)**. This runs in the background, so you can close the browser.
+   When it finishes, everything in `/kaggle/working/outputs` is saved as that version's output.
+4. **Later phases:** in the new notebook, use *Add Input → Your Work →* this notebook. The baseline results then appear under
+   `/kaggle/input/<name>/outputs`. Pass that folder via `--prev_results` (the notebook does it automatically) and finished runs
+   are copied over instead of retrained.
+
+### Caching (no retraining)
+- A run is skipped if `results.json` for the same run name **and the same training settings** already exists in
+  `--output_dir` or any `--prev_results` folder. If you change a setting such as `--lr`, the run trains again.
+- A run that was interrupted has no `results.json`, so rerunning the script only trains the missing runs.
+- Use `--force` to retrain anyway. For hyperparameter sweeps, use a separate `--output_dir`, because a retrained run
+  overwrites the folder of the same name.
+
 ### Notes
 - Model selection uses gold validation macro-F1 with early stopping (patience 3). Results are reported on gold test.
 - Silver data is only ever added to *training*.
