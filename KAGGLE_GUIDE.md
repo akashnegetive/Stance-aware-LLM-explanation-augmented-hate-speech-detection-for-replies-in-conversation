@@ -66,9 +66,10 @@ If a session stops (12 h limit or an error), simply run **Save & Run All** again
 This gives the parent+reply baseline a fair chance to reach the paper's 0.61 weighted F1. Choices are made on the
 **validation** set only, and the test set is just reported.
 
-**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase1b-tuning`. **Attach:** `phase1-baselines`.
+**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase1b-tuning`. **Attach:** nothing. This notebook also (re)trains the Phase 1 RoBERTa baselines first (~40 min), so afterwards it holds
+both Phase 1 and Phase 1b results. **Keep this notebook**; later phases attach it.
 
-1. Do checklist steps 1–5. The "Reusing results from" line must list `phase1-baselines`.
+1. Do checklist steps 1–5.
 2. In the cell `# Phase 1b (optional)`, remove the `# ` in front of the two lines starting with `!test` and `!python tune.py`.
 3. Save & Run All.
 
@@ -86,9 +87,10 @@ For DeBERTa later, use the same command with `--model microsoft/deberta-v3-base`
 
 ## Phase 2: stronger encoder, DeBERTa-v3 (⏱ 1–2 h)
 
-**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase2-deberta`. **Attach:** `phase1-baselines`.
+**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase2-deberta`. **Attach:** nothing.
 
-1. Do checklist steps 1–5. The "Reusing results from" line must list `phase1-baselines`.
+1. Do checklist steps 1–5. Put `#` in front of `!bash run_baselines.sh roberta-base` so RoBERTa is not
+   retrained here (its results live in `phase1b-tuning`).
 2. In the cell `# Phase 2 (optional)`, remove the `#` in front of `!bash run_baselines.sh microsoft/deberta-v3-base`.
 3. Save & Run All.
 
@@ -126,7 +128,7 @@ If it is too slow, add `--model Qwen/Qwen2.5-3B-Instruct` to the generate comman
 ## Phase 3–4: ablation, base / +LLM / +stance / +LLM+stance (⏱ about 2 h per RoBERTa, about 4 h per DeBERTa)
 
 **Notebook:** `kaggle/phase3_ablation.ipynb`, named `phase3-ablation`.
-**Attach:** `phase3a-llm` (required), plus `phase1-baselines`, `phase1b-tuning` and `phase2-deberta` so finished runs are reused.
+**Attach:** `phase3a-llm` (required), plus `phase1b-tuning` and `phase2-deberta` so finished runs are reused.
 
 | Variant | Model input | Training loss |
 |---|---|---|
