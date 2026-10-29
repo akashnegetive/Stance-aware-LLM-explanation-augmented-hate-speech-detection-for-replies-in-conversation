@@ -13,6 +13,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | Phase | What runs | Status | Estimated GPU time |
 |---|---|---|---|
 | 1 | RoBERTa: reply only vs parent+reply, 5 seeds each | ✅ done, [results](results/phase1_roberta.md) | **41 min (measured)** |
+| 1b | Learning-rate tuning (selected on validation weighted F1) | ✅ code ready | **1–1.25 h** |
 | 2 | DeBERTa-v3-base, same 10 runs | ✅ code ready | **1–2 h** |
 | 3a | LLM explanations (+ stance labels) for every parent→reply pair | ⏳ planned | **2–4 h** (run once, cached) |
 | 3b | Classifier with explanations, 2 variants × 5 seeds | ⏳ planned | **1–1.5 h** |
@@ -60,6 +61,29 @@ If a session stops (12 h limit or an error), simply run **Save & Run All** again
 - Note down `train_min` so the remaining estimates can be rescaled.
 
 ➡ Send the `summary.md` table before starting Phase 2.
+
+## Phase 1b: learning-rate tuning (⏱ about 1–1.25 h)
+
+This gives the parent+reply baseline a fair chance to reach the paper's 0.61 weighted F1. Choices are made on the
+**validation** set only, and the test set is just reported.
+
+**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase1b-tuning`. **Attach:** `phase1-baselines`.
+
+1. Do checklist steps 1–5. The "Reusing results from" line must list `phase1-baselines`.
+2. In the cell `# Phase 1b (optional)`, remove the `# ` in front of the two lines starting with `!test` and `!python tune.py`.
+3. Save & Run All.
+
+| Step | Time (based on Phase 1 timings) |
+|---|---|
+| Phase 1 runs (copied, not retrained) | < 1 min |
+| Search, reply only: 3 learning rates × 2 seeds × 2.2 min | ~13 min |
+| Search, parent+reply: 3 × 2 × 5.2 min | ~31 min |
+| Final: best learning rate, 3 more seeds for each setting | ~22 min |
+
+**Result:** `outputs/tuning_roberta-base_weighted_f1.md` shows the validation score of each learning rate and the final test
+scores. The new runs have their own folders (for example `..._lr3e-05_selweighted_f1_s13`), so the Phase 1 results are kept.
+
+For DeBERTa later, use the same command with `--model microsoft/deberta-v3-base` (about 2–2.5 h).
 
 ## Phase 2: stronger encoder, DeBERTa-v3 (⏱ 1–2 h)
 

@@ -83,11 +83,24 @@ class PairDataset(Dataset):
 NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint", "force"}
 
 
+# Hyperparameters that get a tag in the run name when changed from their default,
+# so tuning runs never overwrite the default-setting runs.
+TUNABLE_ARGS = {"lr": "lr", "batch_size": "bs", "epochs": "ep", "max_len": "len",
+                "warmup_ratio": "wu", "weight_decay": "wd", "patience": "pat", "select_metric": "sel"}
+
+
 def training_config(args):
     return {k: v for k, v in vars(args).items() if k not in NON_TRAINING_ARGS}
 
 
-def find_cached_run(run_name, args):
+def make_run_name(args, defaults):
+    tags = "".join(f"_{tag}{getattr(args, k):g}" if isinstance(getattr(args, k), float) else f"_{tag}{getattr(args, k)}"
+                   for k, tag in TUNABLE_ARGS.items() if getattr(args, k) != defaults[k])
+    silver = "_silver" if args.use_silver else ""
+    return f"{args.model.replace('/', '_')}_{args.input}{silver}{tags}_s{args.seed}"
+
+
+def find_cached_run(run_name, args, defaults):
     """Return the run directory of a finished run with identical training settings, if any."""
     for base in [args.output_dir] + list(args.prev_results):
         path = os.path.join(base, run_name, "results.json")
@@ -95,7 +108,8 @@ def find_cached_run(run_name, args):
             continue
         with open(path) as f:
             saved = json.load(f)
-        saved_config = {k: v for k, v in saved["args"].items() if k not in NON_TRAINING_ARGS}
+        # Options added after a run was saved are treated as having their default value.
+        saved_config = {k: v for k, v in {**defaults, **saved["args"]}.items() if k not in NON_TRAINING_ARGS}
         if saved_config == training_config(args):
             return os.path.dirname(path)
         print(f"[{run_name}] found {path} but its settings differ; ignoring it")
@@ -112,7 +126,7 @@ def compute_metrics(eval_pred):
     }
 
 
-def main():
+def build_parser():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default="data/counter_context/data")
     p.add_argument("--input", choices=["target", "context_target"], default="context_target")
@@ -126,18 +140,26 @@ def main():
     p.add_argument("--warmup_ratio", type=float, default=0.1)
     p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--patience", type=int, default=3)
+    p.add_argument("--select_metric", choices=["macro_f1", "weighted_f1"], default="macro_f1",
+                   help="validation metric used to pick the best epoch (the paper reports weighted F1)")
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--keep_checkpoint", action="store_true")
     p.add_argument("--prev_results", nargs="*", default=[],
                    help="read-only dirs with earlier outputs (e.g. a Kaggle input); finished runs found there are reused")
     p.add_argument("--force", action="store_true", help="retrain even if a cached result exists")
+    return p
+
+
+def main():
+    p = build_parser()
     args = p.parse_args()
+    defaults = vars(p.parse_args([]))
 
     set_seed(args.seed)
-    run_name = f"{args.model.replace('/', '_')}_{args.input}{'_silver' if args.use_silver else ''}_s{args.seed}"
+    run_name = make_run_name(args, defaults)
     out_dir = os.path.join(args.output_dir, run_name)
 
-    cached = None if args.force else find_cached_run(run_name, args)
+    cached = None if args.force else find_cached_run(run_name, args, defaults)
     if cached:
         if os.path.abspath(cached) != os.path.abspath(out_dir):
             shutil.copytree(cached, out_dir, dirs_exist_ok=True,
@@ -183,7 +205,7 @@ def main():
         save_strategy="epoch",
         save_total_limit=1,
         load_best_model_at_end=True,
-        metric_for_best_model="macro_f1",
+        metric_for_best_model=args.select_metric,
         greater_is_better=True,
         fp16=torch.cuda.is_available(),
         seed=args.seed,
