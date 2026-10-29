@@ -10,6 +10,11 @@ Each line: {"idx": int, "label": "0"|"1"|"2", "context": str, "target": str}
 Example:
   python baseline.py --input context_target --model roberta-base --seed 42
 
+Ablation features (need an LLM file from generate_llm.py):
+  --use_explanation   append the LLM's explanation of the parent->reply relation to the input
+  --stance_weight W   multi-task training: extra head predicting the reply's stance toward the parent
+                      (LLM labels), loss = CE(hate) + W * CE(stance). W = 0 is exactly the base model.
+
 Runs are cached: if <output_dir>/<run>/results.json (or the same file under any --prev_results
 directory) exists with the same training settings, the run is skipped instead of retrained.
 """
@@ -24,6 +29,7 @@ import shutil
 import numpy as np
 import torch
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
+from torch import nn
 from torch.utils.data import Dataset
 from transformers import (
     AutoModelForSequenceClassification,
@@ -33,10 +39,13 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+from transformers.modeling_outputs import SequenceClassifierOutput
 
 # Label ids as stored in the dataset. Names follow the paper's three classes;
 # verify the id -> name mapping against the paper before reporting per-class numbers.
 LABEL_NAMES = {0: "hate", 1: "neutral", 2: "counter"}
+# Stance of the reply toward its parent comment, as produced by generate_llm.py.
+STANCE_IDS = {"support": 0, "oppose": 1, "neutral": 2}
 
 
 def set_seed(seed):
@@ -56,19 +65,46 @@ def read_jsonl(path):
     return rows
 
 
+def attach_llm_outputs(rows, split, llm):
+    """Add the LLM's explanation and stance to each row; every gold pair must have one."""
+    missing = [r["idx"] for r in rows if (split, r["idx"]) not in llm]
+    if missing:
+        raise SystemExit(f"LLM file has no output for {len(missing)} {split} pairs (e.g. idx {missing[:5]}); "
+                         "finish generate_llm.py first")
+    for r in rows:
+        out = llm[(split, r["idx"])]
+        r["explanation"] = out["explanation"]
+        r["stance"] = STANCE_IDS[out["stance"]]
+
+
+def read_llm_file(path):
+    llm = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                o = json.loads(line)
+                llm[(o["split"], o["idx"])] = o
+    return llm
+
+
 class PairDataset(Dataset):
-    def __init__(self, rows, tokenizer, input_mode, max_len):
+    def __init__(self, rows, tokenizer, input_mode, max_len, use_explanation=False, with_stance=False):
+        second = [r["target"] for r in rows]
+        if use_explanation:
+            # The explanation goes after the reply; truncation removes text from the longer segment first.
+            second = [f"{t} {tokenizer.sep_token} {r['explanation']}" for t, r in zip(second, rows)]
         if input_mode == "target":
-            self.enc = tokenizer([r["target"] for r in rows], truncation=True, max_length=max_len)
+            self.enc = tokenizer(second, truncation=True, max_length=max_len)
         else:
             # Parent comment first, reply second. Long parents are truncated before the reply.
             self.enc = tokenizer(
                 [r["context"] for r in rows],
-                [r["target"] for r in rows],
+                second,
                 truncation="longest_first",
                 max_length=max_len,
             )
         self.labels = [r["label"] for r in rows]
+        self.stance = [r["stance"] for r in rows] if with_stance else None
 
     def __len__(self):
         return len(self.labels)
@@ -76,17 +112,48 @@ class PairDataset(Dataset):
     def __getitem__(self, i):
         item = {k: v[i] for k, v in self.enc.items()}
         item["labels"] = self.labels[i]
+        if self.stance is not None:
+            item["stance_labels"] = self.stance[i]
         return item
 
 
+class StanceMultiTaskModel(nn.Module):
+    """The unchanged sequence classifier plus a stance head on the first-token representation.
+
+    Hate predictions come from the original classification head, so with stance_weight = 0
+    this is exactly the base model; the stance head only adds a training signal.
+    """
+
+    def __init__(self, base, num_stance, stance_weight):
+        super().__init__()
+        self.base = base
+        hidden = base.config.hidden_size
+        self.stance_head = nn.Sequential(
+            nn.Dropout(0.1), nn.Linear(hidden, hidden), nn.Tanh(), nn.Dropout(0.1), nn.Linear(hidden, num_stance))
+        self.stance_weight = stance_weight
+
+    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, stance_labels=None):
+        extra = {"token_type_ids": token_type_ids} if token_type_ids is not None else {}
+        out = self.base(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True, **extra)
+        loss = None
+        if labels is not None:
+            loss = nn.functional.cross_entropy(out.logits, labels)
+            if stance_labels is not None:
+                stance_logits = self.stance_head(out.hidden_states[-1][:, 0])
+                loss = loss + self.stance_weight * nn.functional.cross_entropy(stance_logits, stance_labels)
+        return SequenceClassifierOutput(loss=loss, logits=out.logits)
+
+
 # Arguments that only control where files go; they do not change the trained model.
-NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint", "force"}
+NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint", "force", "llm_file"}
 
 
-# Hyperparameters that get a tag in the run name when changed from their default,
-# so tuning runs never overwrite the default-setting runs.
-TUNABLE_ARGS = {"lr": "lr", "batch_size": "bs", "epochs": "ep", "max_len": "len",
-                "warmup_ratio": "wu", "weight_decay": "wd", "patience": "pat", "select_metric": "sel"}
+# Settings that get a tag in the run name when changed from their default,
+# so tuning and ablation runs never overwrite the default-setting runs.
+TUNABLE_ARGS = {"use_explanation": "expl", "stance_weight": "stance",
+                "lr": "lr", "batch_size": "bs", "epochs": "ep", "max_len": "len",
+                "warmup_ratio": "wu", "weight_decay": "wd", "patience": "pat", "select_metric": "sel",
+                "limit": "lim"}
 
 
 def training_config(args):
@@ -94,8 +161,13 @@ def training_config(args):
 
 
 def make_run_name(args, defaults):
-    tags = "".join(f"_{tag}{getattr(args, k):g}" if isinstance(getattr(args, k), float) else f"_{tag}{getattr(args, k)}"
-                   for k, tag in TUNABLE_ARGS.items() if getattr(args, k) != defaults[k])
+    def tag(k, name):
+        v = getattr(args, k)
+        if isinstance(v, bool):
+            return f"_{name}"
+        return f"_{name}{v:g}" if isinstance(v, float) else f"_{name}{v}"
+
+    tags = "".join(tag(k, name) for k, name in TUNABLE_ARGS.items() if getattr(args, k) != defaults[k])
     silver = "_silver" if args.use_silver else ""
     return f"{args.model.replace('/', '_')}_{args.input}{silver}{tags}_s{args.seed}"
 
@@ -142,6 +214,10 @@ def build_parser():
     p.add_argument("--patience", type=int, default=3)
     p.add_argument("--select_metric", choices=["macro_f1", "weighted_f1"], default="macro_f1",
                    help="validation metric used to pick the best epoch (the paper reports weighted F1)")
+    p.add_argument("--llm_file", default=None, help="explanations + stance labels from generate_llm.py")
+    p.add_argument("--use_explanation", action="store_true", help="append the LLM explanation to the input")
+    p.add_argument("--stance_weight", type=float, default=0.0, help="weight of the auxiliary stance loss (0 = off)")
+    p.add_argument("--limit", type=int, default=0, help="use only the first N pairs of each split (smoke tests)")
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--keep_checkpoint", action="store_true")
     p.add_argument("--prev_results", nargs="*", default=[],
@@ -154,6 +230,11 @@ def main():
     p = build_parser()
     args = p.parse_args()
     defaults = vars(p.parse_args([]))
+    uses_llm = args.use_explanation or args.stance_weight > 0
+    if uses_llm and not args.llm_file:
+        p.error("--use_explanation / --stance_weight need --llm_file")
+    if uses_llm and args.use_silver:
+        p.error("LLM outputs exist only for gold pairs; do not combine them with --use_silver")
 
     set_seed(args.seed)
     run_name = make_run_name(args, defaults)
@@ -175,6 +256,12 @@ def main():
         # Silver data is only ever added to training; model selection and testing stay on gold.
         train += read_jsonl(os.path.join(args.data_dir, "silver", "train.jsonl"))
         train += read_jsonl(os.path.join(args.data_dir, "silver", "val.jsonl"))
+    if args.limit:
+        train, val, test = train[:args.limit], val[:args.limit], test[:args.limit]
+    if uses_llm:
+        llm = read_llm_file(args.llm_file)
+        for split, rows in (("train", train), ("val", val), ("test", test)):
+            attach_llm_outputs(rows, split, llm)
     print(f"[{run_name}] train={len(train)} val={len(val)} test={len(test)}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -184,10 +271,16 @@ def main():
         id2label=LABEL_NAMES,
         label2id={v: k for k, v in LABEL_NAMES.items()},
     )
+    with_stance = args.stance_weight > 0
+    if with_stance:
+        model = StanceMultiTaskModel(model, len(STANCE_IDS), args.stance_weight)
 
-    ds_train = PairDataset(train, tokenizer, args.input, args.max_len)
-    ds_val = PairDataset(val, tokenizer, args.input, args.max_len)
-    ds_test = PairDataset(test, tokenizer, args.input, args.max_len)
+    def make_ds(rows):
+        return PairDataset(rows, tokenizer, args.input, args.max_len, args.use_explanation, with_stance)
+
+    ds_train, ds_val, ds_test = make_ds(train), make_ds(val), make_ds(test)
+    truncated = sum(len(ids) >= args.max_len for ids in ds_train.enc["input_ids"])
+    print(f"[{run_name}] {truncated} of {len(ds_train)} training inputs reach max_len={args.max_len} (truncated)")
 
     # transformers v5 removed `warmup_ratio`; an integer step count works in both v4 and v5.
     total_steps = math.ceil(len(ds_train) / args.batch_size) * args.epochs
@@ -209,6 +302,8 @@ def main():
         greater_is_better=True,
         fp16=torch.cuda.is_available(),
         seed=args.seed,
+        # Only the hate labels are evaluation targets; stance_labels is an extra training input.
+        label_names=["labels"],
         logging_steps=50,
         report_to="none",
     )

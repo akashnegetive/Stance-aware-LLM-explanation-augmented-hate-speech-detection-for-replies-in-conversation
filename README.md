@@ -3,6 +3,16 @@
 MTech dissertation code. The task is to classify a Reddit **reply** as *hate*, *neutral* or *counter-speech*,
 using its **parent comment** as context.
 
+| File | Purpose |
+|---|---|
+| `baseline.py` | Trains and evaluates one run (any encoder; optional LLM explanation input and stance multi-task head) |
+| `run_baselines.sh` | Phase 1/2: reply-only vs parent+reply, 5 seeds |
+| `tune.py` | Phase 1b: learning-rate search, selected on validation |
+| `generate_llm.py` | Phase 3a: LLM explanations + stance labels for every gold pair (resumable) |
+| `ablation.py` | Phase 3–4: base / +LLM / +stance / +LLM+stance for each encoder |
+| `aggregate.py` | mean ± std table over all finished runs |
+| `kaggle/*.ipynb` | One Kaggle notebook per phase; see [KAGGLE_GUIDE.md](KAGGLE_GUIDE.md) |
+
 ## Phase 1 — baselines (reproducing Yu, Blanco & Hong, NAACL 2022)
 
 | Setting | Model input |

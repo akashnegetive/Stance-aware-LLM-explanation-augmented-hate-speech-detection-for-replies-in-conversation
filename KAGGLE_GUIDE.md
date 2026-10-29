@@ -15,11 +15,10 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | 1 | RoBERTa: reply only vs parent+reply, 5 seeds each | ✅ done, [results](results/phase1_roberta.md) | **41 min (measured)** |
 | 1b | Learning-rate tuning (selected on validation weighted F1) | ✅ code ready | **1–1.25 h** |
 | 2 | DeBERTa-v3-base, same 10 runs | ✅ code ready | **1–2 h** |
-| 3a | LLM explanations (+ stance labels) for every parent→reply pair | ⏳ planned | **2–4 h** (run once, cached) |
-| 3b | Classifier with explanations, 2 variants × 5 seeds | ⏳ planned | **1–1.5 h** |
-| 4 | Stance multi-task model (λ search + 5 seeds) | ⏳ planned | **1–1.5 h** |
+| 3a | LLM explanations + stance labels for every parent→reply pair | ✅ code ready | **2–4 h** (run once, cached) |
+| 3–4 | Ablation: base / +LLM / +stance / +LLM+stance × RoBERTa + DeBERTa, 5 seeds | ✅ code ready | **≈ 5.5–6 h** (RoBERTa ~2 h, DeBERTa ~4 h) |
 | 5 | CAD + ICHCL generalisation, LLM baselines, error analysis | ⏳ planned | **6–12 h** (spread over 2 weeks) |
-| | **Total** | | **≈ 12–22 h**, about 2–3 weeks of quota |
+| | **Total** | | **≈ 17–27 h**, about 2–3 weeks of quota |
 
 Check how much quota you have left by clicking your profile picture → **Settings → Quotas**.
 
@@ -101,20 +100,59 @@ For DeBERTa later, use the same command with `--model microsoft/deberta-v3-base`
 **Check:** DeBERTa parent+reply should beat RoBERTa parent+reply. This becomes the **strong baseline** that Phase 3 must beat.
 If you see `nan` loss with DeBERTa, tell me. The fix is to turn off fp16 for that model.
 
-## Phase 3: LLM explanations (⏳ code coming next)
+## Phase 3a: LLM explanations and stance labels (⏱ about 2–4 h, run once)
 
-The phase is split into two notebooks, so the expensive LLM step runs **only once**:
+**Notebook:** `kaggle/phase3a_llm.ipynb`, named `phase3a-llm`. **Attach:** nothing. This notebook uses **both** T4 GPUs.
 
-- **3a `phase3a-explanations` (⏱ 2–4 h, once):** Qwen2.5-7B-Instruct in 4-bit writes a short explanation of the
-  parent→reply relationship for all 4,751 gold pairs. **It also predicts the reply's stance in the same pass**, which saves
-  doing a separate run for Phase 4. Results are saved in chunks to `explanations.jsonl`, so if the session stops it continues
-  where it left off.
-- **3b `phase3b-explained` (⏱ 1–1.5 h):** attach 1, 2 and 3a, then train the classifier with `[parent] [SEP] reply [SEP] explanation`
-  (relationship explanation vs reply-only explanation, 5 seeds each).
+Qwen2.5-7B-Instruct reads each of the 4,751 gold parent→reply pairs. For each pair it writes the reply's **stance** toward the
+parent (support / oppose / neutral) and a 1–2 sentence **explanation** of how the reply relates to the parent.
+It never sees the hate/counter/neutral label and is told not to judge hatefulness, so its outputs can be used on the test set.
 
-## Phase 4: stance multi-task (⏳ planned, ⏱ 1–1.5 h)
+1. Do checklist steps 1–3.
+2. **Smoke test:** run cells 1–4 interactively (~5–10 min, mostly downloading the 15 GB model). In the 3 printed lines, most should
+   have `"parse_ok": true` with a sensible stance and explanation.
+3. Save & Run All. The log prints `… pairs/s | ~N min left`, which gives the real time after the first batches.
+4. **If the session stops:** open the notebook again, use *Add Input → Your Work* to attach its own last version, and Save & Run All.
+   It continues from the saved file.
+5. Check the last cell. The parse rate should be high (> 90%), and `counter` replies should lean toward `oppose`.
 
-Attach 1, 2 and 3a. Search λ ∈ {0.3, 0.5, 1.0} on one seed (~30 min), then run the best λ on 5 seeds (~45 min).
+| Step | Time |
+|---|---|
+| Model download + loading | ~5–10 min |
+| 4,751 pairs (greedy decoding, ≤ 120 new tokens) | ~1.5–3.5 h (estimate; the log shows the real speed) |
+
+If it is too slow, add `--model Qwen/Qwen2.5-3B-Instruct` to the generate command (roughly 2× faster, slightly weaker explanations).
+
+## Phase 3–4: ablation, base / +LLM / +stance / +LLM+stance (⏱ about 2 h per RoBERTa, about 4 h per DeBERTa)
+
+**Notebook:** `kaggle/phase3_ablation.ipynb`, named `phase3-ablation`.
+**Attach:** `phase3a-llm` (required), plus `phase1-baselines`, `phase1b-tuning` and `phase2-deberta` so finished runs are reused.
+
+| Variant | Model input | Training loss |
+|---|---|---|
+| base | parent + reply | hate/neutral/counter |
+| llm | parent + reply + LLM explanation | hate/neutral/counter |
+| stance | parent + reply | hate/neutral/counter + 0.5 × stance (extra head) |
+| llm_stance | parent + reply + LLM explanation | both |
+
+With stance weight 0 the stance model is exactly the base model, so any difference comes from the stance signal.
+
+1. Do checklist steps 1–5. The cell must print `LLM file: … 4751 lines`.
+2. **Smoke test:** run the smoke-test cell (~3–5 min). It trains all four variants on 64 pairs for 1 epoch and prints a small table.
+   The numbers mean nothing; it only has to finish without errors.
+3. In the last cell, set `MODELS` to the learning rates chosen in Phase 1b, for example `roberta-base=3e-5`.
+4. Save & Run All. Seeds run in the outer loop, so if the session stops after 12 h every variant still has some seeds,
+   and a rerun with this notebook's last version attached finishes the rest.
+
+| Model | Per seed (4 variants) | 5 seeds |
+|---|---|---|
+| RoBERTa-base | ~25 min (base may be cached from Phase 1b) | ~1.7–2 h |
+| DeBERTa-v3-base | ~50 min | ~3.5–4 h |
+
+**Result:** `outputs/ablation_weighted_f1.md` gives weighted/macro F1 (mean ± std over seeds), the change against base, and
+per-class F1 for each model × variant.
+If DeBERTa shows `nan` loss, tell me; the fix is to turn off fp16 for that model.
+To try other stance weights later, add `--stance_weight 0.3` or `1.0`. Each weight gets its own run folders.
 
 ## Phase 5: generalisation and analysis (⏳ planned, ⏱ 6–12 h, split over sessions)
 
