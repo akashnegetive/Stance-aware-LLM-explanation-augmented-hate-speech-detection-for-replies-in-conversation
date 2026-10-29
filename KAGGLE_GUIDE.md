@@ -66,16 +66,17 @@ If a session stops (12 h limit or an error), simply run **Save & Run All** again
 This gives the parent+reply baseline a fair chance to reach the paper's 0.61 weighted F1. Choices are made on the
 **validation** set only, and the test set is just reported.
 
-**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase1b-tuning`. **Attach:** nothing. This notebook also (re)trains the Phase 1 RoBERTa baselines first (~40 min), so afterwards it holds
-both Phase 1 and Phase 1b results. **Keep this notebook**; later phases attach it.
+**Notebook:** import `kaggle/phase1_baselines.ipynb` again as a new notebook named `phase1b-tuning`. **Attach:** nothing. **Keep this notebook**; the ablation reuses its runs as the tuned base model.
 
 1. Do checklist steps 1–5.
-2. In the cell `# Phase 1b (optional)`, remove the `# ` in front of the two lines starting with `!test` and `!python tune.py`.
-3. Save & Run All.
+2. In the cell `# Phase 1: RoBERTa…`, put `#` in front of `!bash run_baselines.sh roberta-base`. The default-setting runs
+   aren't needed again; their numbers are saved in `results/phase1_roberta.md`.
+3. In the cell `# Phase 1b (optional)`, remove the `# ` in front of the two lines starting with `!test` and `!python tune.py`.
+   The `!test` line downloads the dataset.
+4. Save & Run All.
 
 | Step | Time (based on Phase 1 timings) |
 |---|---|
-| Phase 1 runs (copied, not retrained) | < 1 min |
 | Search, reply only: 3 learning rates × 2 seeds × 2.2 min | ~13 min |
 | Search, parent+reply: 3 × 2 × 5.2 min | ~31 min |
 | Final: best learning rate, 3 more seeds for each setting | ~22 min |
