@@ -271,6 +271,9 @@ def main():
         id2label=LABEL_NAMES,
         label2id={v: k for k, v in LABEL_NAMES.items()},
     )
+    # transformers v5 loads weights in the dtype they were saved in (fp16 for DeBERTa-v3); mixed-precision
+    # training needs fp32 master weights, otherwise it fails with "Attempting to unscale FP16 gradients".
+    model = model.float()
     with_stance = args.stance_weight > 0
     if with_stance:
         model = StanceMultiTaskModel(model, len(STANCE_IDS), args.stance_weight)
