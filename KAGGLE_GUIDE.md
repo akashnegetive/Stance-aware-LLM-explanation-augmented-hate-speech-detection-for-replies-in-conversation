@@ -13,7 +13,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | Phase | What runs | Status | Estimated GPU time |
 |---|---|---|---|
 | 1 | RoBERTa: reply only vs parent+reply, 5 seeds each | ✅ done, [results](results/phase1_roberta.md) | **41 min (measured)** |
-| 1b | Learning-rate tuning (selected on validation weighted F1) | ✅ code ready | **1–1.25 h** |
+| 1b | Learning-rate tuning (selected on validation weighted F1) | ✅ done, [results](results/phase1b_tuning_roberta.md): RoBERTa lr 1e-5 | **~70 min (measured)** |
 | 2 | DeBERTa-v3-base, same 10 runs | ✅ code ready | **1–2 h** |
 | 3a | LLM explanations + stance labels for every parent→reply pair | ✅ code ready | **2–4 h** (run once, cached) |
 | 3–4 | Ablation: base / +LLM / +stance / +LLM+stance × RoBERTa + DeBERTa, 5 seeds | ✅ code ready | **≈ 5.5–6 h** (RoBERTa ~2 h, DeBERTa ~4 h) |
@@ -143,7 +143,7 @@ With stance weight 0 the stance model is exactly the base model, so any differen
 1. Do checklist steps 1–5. The cell must print `LLM file: … 4751 lines`.
 2. **Smoke test:** run the smoke-test cell (~3–5 min). It trains all four variants on 64 pairs for 1 epoch and prints a small table.
    The numbers mean nothing; it only has to finish without errors.
-3. In the last cell, set `MODELS` to the learning rates chosen in Phase 1b, for example `roberta-base=3e-5`.
+3. In the last cell, check `MODELS`: RoBERTa uses `roberta-base=1e-5` (chosen in Phase 1b); set DeBERTa's learning rate after Phase 2.
 4. Save & Run All. Seeds run in the outer loop, so if the session stops after 12 h every variant still has some seeds,
    and a rerun with this notebook's last version attached finishes the rest.
 
