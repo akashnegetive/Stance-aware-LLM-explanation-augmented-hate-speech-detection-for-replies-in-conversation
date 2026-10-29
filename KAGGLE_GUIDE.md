@@ -12,7 +12,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 
 | Phase | What runs | Status | Estimated GPU time |
 |---|---|---|---|
-| 1 | RoBERTa: reply only vs parent+reply, 5 seeds each | ✅ code ready | **45–75 min** |
+| 1 | RoBERTa: reply only vs parent+reply, 5 seeds each | ✅ done, [results](results/phase1_roberta.md) | **41 min (measured)** |
 | 2 | DeBERTa-v3-base, same 10 runs | ✅ code ready | **1–2 h** |
 | 3a | LLM explanations (+ stance labels) for every parent→reply pair | ⏳ planned | **2–4 h** (run once, cached) |
 | 3b | Classifier with explanations, 2 variants × 5 seeds | ⏳ planned | **1–1.5 h** |
@@ -41,7 +41,7 @@ If a session stops (12 h limit or an error), simply run **Save & Run All** again
 
 ---
 
-## Phase 1: reproduce the baselines (⏱ 45–75 min)
+## Phase 1: reproduce the baselines (⏱ 41 min measured: about 2.2 min per reply-only run and 5.2 min per parent+reply run)
 
 **Notebook:** `kaggle/phase1_baselines.ipynb`. **Attach:** nothing.
 
