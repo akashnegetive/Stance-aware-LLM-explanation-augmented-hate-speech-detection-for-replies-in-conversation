@@ -19,7 +19,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | 3–4 | Ablation: base / +LLM / +stance / +LLM+stance × RoBERTa + DeBERTa, 5 seeds | ✅ done, [results](results/phase3_ablation.md): +LLM = +3.1 F1 (RoBERTa) | **~5 h** |
 | 4b | LLM-only baselines (zero/few-shot) + significance tests + error analysis | ✅ done, [results](results/phase4b_significance.md) | **~30 min** |
 | 4c | Few-shot robustness + hybrid (encoder + few-shot LLM label) | ✅ done, [results](results/phase4c_hybrid.md): hybrid 62.66 (+3.81) | **~2.5–3 h** |
-| 5 | CAD + ICHCL generalisation | ⏳ planned | **5–10 h** (spread over 2 weeks) |
+| 5 | Generalisation to CAD (second Reddit dataset): LLM outputs, LLM baselines, hybrid ablation | ✅ code ready | **~4–7 h** (depends on CAD size; see below) |
 | | **Total** | | **≈ 17–27 h**, about 2–3 weeks of quota |
 
 Check how much quota you have left by clicking your profile picture → **Settings → Quotas**.
@@ -207,12 +207,32 @@ with the few-shot LLM beat both? The hybrid adds the LLM's own predicted label t
 - every fine-tuned variant against the LLM-only baselines (paired bootstrap, LLM score averaged over example sets).
 - **ensembles**: each variant's 5 seeds combined (mean softmax) against a majority vote of the LLM's example sets.
 
-## Phase 5: generalisation and analysis (⏳ planned, ⏱ 6–12 h, split over sessions)
+## Phase 5: generalisation to CAD (⏱ about 4–7 h, may need two sessions)
 
-| Part | Estimated time |
+**Notebook:** `kaggle/phase5_cad.ipynb`, named `phase5-cad`. **Attach:** nothing the first time.
+
+CAD (Contextual Abuse Dataset, Vidgen et al., NAACL 2021, CC-BY 4.0) is a second Reddit dataset annotated in context.
+`prepare_cad.py` downloads it from Zenodo and builds parent→reply pairs with CAD's own train/dev/test split:
+identity/affiliation/person-directed abuse → **hate**, CounterSpeech → **counter**, Neutral and non-derogatory Slur
+→ **neutral** (abuse wins when an entry has several labels). All hate and counter pairs are kept, and neutral pairs are
+sampled to the same number (`--neutral_ratio 1`). Each pair records whether CAD says its label needs the previous content.
+
+1. Do checklist steps 1–3 (attach nothing).
+2. Run the setup cells, then **cell 1 (CAD pairs)** on its own. It prints a table of pairs per split and label.
+   **Check it before the long run**, or paste it to me. Above ~15,000 pairs in total, lower `--neutral_ratio` or ask for a cap.
+3. Save & Run All.
+4. **If the session stops (12 h):** attach this notebook's last version and run again. The pairs, LLM outputs, labels and
+   training runs are all reused.
+
+Time scales with the number of pairs (N, all splits) and training pairs (N_train):
+
+| Step | Time |
 |---|---|
-| CAD: baselines + best model, 3 seeds | 3–5 h |
-| ICHCL (Hinglish, MuRIL): baselines + best model | 1–2 h, plus 1–2 h for explanations |
-| Zero/few-shot LLM baselines on the test set | 0.5–1 h |
-| LoRA fine-tuned 7B LLM (optional) | 2–4 h |
-| Significance tests + error analysis | CPU only, minutes |
+| Download + pairs | ~5 min |
+| LLM explanations (2.2 pairs/s measured in Phase 3a) | N / 2.2 s, e.g. 10,000 pairs ≈ 75 min |
+| LLM zero-shot (test) + 2-shot labels (all splits) | ~N / 1.5 s, e.g. 10,000 pairs ≈ 2 h |
+| RoBERTa: 4 variants × 3 seeds | 12 × ~5 min × N_train / 3,325 |
+| Significance (CPU) | ~2 min |
+
+**Result:** `outputs/significance_weighted_f1.md` has the same tables as Phase 4c, for CAD (models marked `[cad]`).
+

@@ -32,7 +32,7 @@ DEFAULT_VARIANTS = ["base", "llm", "stance", "llm_stance"]
 
 
 def run_args(model, lr, variant, seed, args):
-    a = ["--model", model, "--lr", str(lr), "--input", "context_target", "--seed", str(seed),
+    a = ["--model", model, "--lr", str(lr), "--input", "context_target", "--seed", str(seed), "--dataset", args.dataset,
          "--select_metric", args.select_metric, "--data_dir", args.data_dir, "--output_dir", args.output_dir]
     a += [x.format(w=args.stance_weight) for x in VARIANTS[variant]]
     if "--use_explanation" in a or "--stance_weight" in a:
@@ -57,6 +57,7 @@ def main():
     p.add_argument("--llm_file", default="llm/llm_outputs.jsonl")
     p.add_argument("--llm_label_file", default=None, help="llm_classify.py raw.jsonl with train/val/test labels")
     p.add_argument("--data_dir", default="data/counter_context/data")
+    p.add_argument("--dataset", default="yu2022", help="dataset name; must match --data_dir (e.g. cad)")
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--prev_results", nargs="*", default=[])
     p.add_argument("--limit", type=int, default=0, help="smoke test: N pairs per split, 1 epoch")

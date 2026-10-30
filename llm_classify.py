@@ -83,7 +83,8 @@ def pick_shots(data_dir, k, seed=0, max_chars=300):
 
 
 def run_name(args, seed):
-    name = f"llm_{args.model.split('/')[-1]}_{args.shots}shot"
+    ds = "" if args.dataset == "yu2022" else f"{args.dataset}_"
+    name = f"llm_{ds}{args.model.split('/')[-1]}_{args.shots}shot"
     if args.shots and seed:
         name += f"_seed{seed}"
     return name + (f"_lim{args.limit}" if args.limit else "")
@@ -96,6 +97,7 @@ def main():
     p.add_argument("--shot_seeds", nargs="+", type=int, default=[0], help="example sets to try (0 = file order)")
     p.add_argument("--splits", nargs="+", default=["test"], choices=["train", "val", "test"])
     p.add_argument("--data_dir", default="data/counter_context/data")
+    p.add_argument("--dataset", default="yu2022", help="dataset name; part of the run name when not the default")
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--resume_from", nargs="*", default=[],
                    help="earlier raw.jsonl files; each run continues from the most complete file in a folder of its name")

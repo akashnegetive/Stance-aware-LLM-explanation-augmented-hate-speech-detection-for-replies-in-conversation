@@ -154,7 +154,7 @@ def main():
     rows, enc_llm, enc_vs_llm, enc_base = [], {}, {}, {}
     for key, variants in sorted(groups.items()):
         cfg = json.loads(key)
-        model = f"{cfg['model']} (lr {cfg['lr']:g})"
+        model = f"{cfg['model']} (lr {cfg['lr']:g})" + (f" [{cfg['dataset']}]" if cfg["dataset"] != "yu2022" else "")
         if "base" not in variants:
             print(f"skipping {model}: no base runs")
             continue
@@ -218,7 +218,8 @@ def main():
             for (model, var), preds_v in sorted(enc_vs_llm.items()):
                 for cfg_name, draws in configs.items():
                     preds_l = [read_preds(d[2]) for d in draws]
-                    if not all(np.array_equal(p[0], preds_v[0][0]) for p in preds_l):
+                    # same test pairs and gold labels, i.e. the same dataset
+                    if not all(np.array_equal(p[0], preds_v[0][0]) and np.array_equal(p[1], preds_v[0][1]) for p in preds_l):
                         continue
                     b = bootstrap(preds_v[0][1], [x[2] for x in preds_v], [p[2] for p in preds_l], args.n_boot, rng)
                     cells = [f"{b[m][0]:+.2f} [{b[m][1]:+.2f}, {b[m][2]:+.2f}], p {b[m][3]:.4f}" for m in ("weighted_f1", "macro_f1")]
@@ -226,10 +227,18 @@ def main():
             lines.append("")
 
             # Ensemble vs ensemble: the fine-tuned seeds averaged (mean softmax) vs a majority vote of the LLM draws
+            # Only systems scored on the same test pairs as the first fine-tuned model (one dataset per table).
+            ref = next(iter(enc_vs_llm.values()))[0]
+            same = lambda p: np.array_equal(p[0], ref[0]) and np.array_equal(p[1], ref[1])
+            y = ref[1]
             ens = {f"{model} {'base' if var == 'base' else '+' + var}": ensemble(p)
-                   for (model, var), p in sorted({**{(m, "base"): p for m, p in enc_base.items()}, **enc_vs_llm}.items())}
-            votes = {cfg: majority_vote([read_preds(d[2]) for d in draws]) for cfg, draws in configs.items()}
-            y = next(iter(enc_vs_llm.values()))[0][1]
+                   for (model, var), p in sorted({**{(m, "base"): p for m, p in enc_base.items()}, **enc_vs_llm}.items())
+                   if same(p[0])}
+            votes = {}
+            for cfg, draws in configs.items():
+                preds_l = [read_preds(d[2]) for d in draws]
+                if all(same(p) for p in preds_l):
+                    votes[cfg] = majority_vote(preds_l)
             lines += ["## Ensembles: fine-tuned seeds (mean softmax) vs majority vote of the LLM's example sets", "",
                       "| system | members | weighted F1 | macro F1 |", "|---|---|---|---|"]
             for name, (pred, n) in ens.items():
@@ -266,6 +275,9 @@ def main():
     N = LABEL_NAMES
     for model, (preds_b, preds_v) in enc_llm.items():
         idx, y = preds_b[0][0], preds_b[0][1]
+        if not all(int(i) in texts and int(texts[int(i)]["label"]) == int(c) for i, c in zip(idx, y)):
+            print(f"error analysis skipped for {model}: its test pairs are not the ones in {args.data_dir}")
+            continue
         eb = np.mean([softmax(x[3]) for x in preds_b], 0).argmax(1)
         ev = np.mean([softmax(x[3]) for x in preds_v], 0).argmax(1)
         wb, mb = f1_scores(y, eb)

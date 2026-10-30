@@ -166,7 +166,7 @@ NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint"
 
 # Settings that get a tag in the run name when changed from their default,
 # so tuning and ablation runs never overwrite the default-setting runs.
-TUNABLE_ARGS = {"use_explanation": "expl", "stance_weight": "stance", "use_llm_label": "lab",
+TUNABLE_ARGS = {"dataset": "ds-", "use_explanation": "expl", "stance_weight": "stance", "use_llm_label": "lab",
                 "lr": "lr", "batch_size": "bs", "epochs": "ep", "max_len": "len",
                 "warmup_ratio": "wu", "weight_decay": "wd", "patience": "pat", "select_metric": "sel",
                 "limit": "lim"}
@@ -217,6 +217,9 @@ def compute_metrics(eval_pred):
 def build_parser():
     p = argparse.ArgumentParser()
     p.add_argument("--data_dir", default="data/counter_context/data")
+    p.add_argument("--dataset", default="yu2022",
+                   help="dataset name (e.g. cad); part of the run name when not the default, so runs on different "
+                        "datasets never share a cache entry")
     p.add_argument("--input", choices=["target", "context_target"], default="context_target")
     p.add_argument("--model", default="roberta-base")
     p.add_argument("--use_silver", action="store_true", help="add silver train/val data to gold train/val")

@@ -11,6 +11,7 @@ using its **parent comment** as context.
 | `generate_llm.py` | Phase 3a: LLM explanations + stance labels for every gold pair (resumable) |
 | `ablation.py` | Phase 3–4: base / +LLM / +stance / +LLM+stance for each encoder; Phase 4c hybrid variants +label / +LLM+label |
 | `llm_classify.py` | Phase 4b/4c: LLM-only baseline, zero-/few-shot over several example sets; labels train/val/test for the hybrid (resumable) |
+| `prepare_cad.py` | Phase 5: CAD → parent/reply pairs in the same format (`--data_dir … --dataset cad` everywhere) |
 | `significance.py` | Phase 4b: paired t-tests (Holm), paired bootstrap, error analysis with examples |
 | `aggregate.py` | mean ± std table over all finished runs |
 | `kaggle/*.ipynb` | One Kaggle notebook per phase; see [KAGGLE_GUIDE.md](KAGGLE_GUIDE.md) |
