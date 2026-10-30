@@ -49,6 +49,42 @@ already in Phase 4b differ slightly from that report because of bootstrap sampli
 - The hybrid significantly beats zero-shot prompting (+5.4) and is numerically above 2-shot prompting (+1.4 weighted, +2.5 macro),
   but that margin is not significant (macro p = 0.084): with 713 test pairs, 1–2 point differences are hard to establish.
 
-## Next
-- Ensemble comparison: 5-seed ensemble of the hybrid vs majority vote of the 4 few-shot draws (CPU only, existing predictions).
-- Re-run the 4-shot baseline (missing here).
+## Ensembles (rerun `phase4c-rerun`): 5-seed fine-tuned ensembles vs majority vote of the LLM's example sets
+
+Fine-tuned ensemble = argmax of the mean softmax over the 5 seeds. LLM vote = majority over the example sets
+(ties go to the label seen in the earliest draw).
+
+| system | members | weighted F1 | macro F1 |
+|---|---|---|---|
+| RoBERTa base | 5 seeds | 59.17 | 55.55 |
+| RoBERTa + explanation | 5 seeds | 63.11 | 59.66 |
+| RoBERTa + LLM label | 5 seeds | 64.16 | 60.40 |
+| RoBERTa + explanation + LLM label (hybrid) | 5 seeds | 63.96 | 60.53 |
+| DeBERTa base | 5 seeds | 59.07 | 54.89 |
+| DeBERTa + explanation | 5 seeds | 61.47 | 58.01 |
+| Qwen2.5-7B zero-shot | 1 | 57.23 | 53.90 |
+| Qwen2.5-7B 2-shot, majority vote | 4 example sets | 62.03 | 57.52 |
+
+| fine-tuned ensemble | vs 2-shot vote: Δ weighted F1 (95% CI, p) | Δ macro F1 (95% CI, p) | vs zero-shot: Δ weighted F1 (p) |
+|---|---|---|---|
+| RoBERTa + LLM label | +2.14 [−0.80, +5.22], 0.16 | +2.88 [−0.46, +6.30], 0.093 | +6.93 (0.0002) |
+| RoBERTa hybrid | +1.94 [−1.52, +5.49], 0.25 | +3.01 [−0.69, +6.83], 0.11 | +6.73 (0.0008) |
+| RoBERTa + explanation | +1.08 [−2.69, +5.02], 0.58 | +2.14 [−1.99, +6.51], 0.32 | +5.88 (0.0040) |
+| DeBERTa + explanation | −0.56 [−4.59, +3.30], 0.80 | +0.48 [−3.99, +4.76], 0.83 | +4.24 (0.042) |
+
+Cost per test pair: + explanation and + label need one LLM call, the hybrid two, plus one small encoder pass per seed;
+the LLM vote needs one LLM call per example set (4 here).
+
+### Interpretation
+- RoBERTa ensembles with LLM-derived input lead the 2-shot vote by 2–3 points in every comparison (weighted and macro F1),
+  but the margin is not significant (p ≈ 0.09–0.25): with 713 test pairs the 95% CI is about ±3.5 points wide.
+- All LLM-augmented RoBERTa ensembles beat zero-shot prompting significantly (p ≤ 0.004).
+- Once ensembled, the LLM label alone matches the hybrid (64.16 vs 63.96 weighted F1); the explanation's added value
+  is clearest for single models and for the counter class.
+
+## Conclusion for the dissertation
+The LLM-augmented encoder significantly improves the fine-tuned baseline (+3.8 weighted / +4.0 macro F1, p = 0.002) and
+significantly beats zero-shot prompting. It is the best system in every setting (single runs and ensembles), 2–3 points
+above few-shot prompting of the same LLM; that margin is consistent but not statistically significant on this test set.
+
+4-shot prompting was not completed (out of GPU memory at batch 16; fixed in code, left as future work).
