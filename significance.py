@@ -21,6 +21,7 @@ import argparse
 import glob
 import json
 import os
+import re
 
 import numpy as np
 from scipy import stats
@@ -29,9 +30,9 @@ from baseline import LABEL_NAMES, NON_TRAINING_ARGS, build_parser
 
 
 def variant_name(cfg):
-    expl, w = cfg["use_explanation"], cfg["stance_weight"]
-    name = {(False, False): "base", (True, False): "llm", (False, True): "stance", (True, True): "llm_stance"}[(expl, bool(w))]
-    return name + (f" (w={w:g})" if w and w != 0.5 else "")
+    expl, w, lab = cfg["use_explanation"], cfg["stance_weight"], cfg.get("use_llm_label", False)
+    parts = (["llm"] if expl else []) + (["stance"] if w else []) + (["label"] if lab else [])
+    return ("_".join(parts) or "base") + (f" (w={w:g})" if w and w != 0.5 else "")
 
 
 def load_runs(dirs, select_metric):
@@ -127,13 +128,13 @@ def main():
     groups = {}
     for cfg, r, pred_path in runs.values():
         key_cfg = {k: v for k, v in cfg.items()
-                   if k not in NON_TRAINING_ARGS | {"seed", "use_explanation", "stance_weight"}}
+                   if k not in NON_TRAINING_ARGS | {"seed", "use_explanation", "stance_weight", "use_llm_label"}}
         key = json.dumps(key_cfg, sort_keys=True)
         var = variant_name(cfg)
         groups.setdefault(key, {}).setdefault(var, {})[cfg["seed"]] = (r, pred_path)
 
     rng = np.random.default_rng(0)
-    rows, enc_llm = [], {}
+    rows, enc_llm, enc_vs_llm = [], {}, {}
     for key, variants in sorted(groups.items()):
         cfg = json.loads(key)
         model = f"{cfg['model']} (lr {cfg['lr']:g})"
@@ -160,6 +161,8 @@ def main():
             rows.append({"model": model, "variant": var, "n": len(seeds), **{m: {**res[m], "boot": boot[m]} for m in res}})
             if var == "llm":
                 enc_llm[model] = (preds_b, preds_v)
+            if var in ("llm", "label", "llm_label"):
+                enc_vs_llm[(model, var)] = preds_v
 
     lines = [f"# Significance tests (test set, selected on validation {args.select_metric})", "",
              f"Paired t-test over seeds (Holm-corrected across the {len(rows)} comparisons) and paired bootstrap over "
@@ -175,20 +178,34 @@ def main():
                          f"{r[m]['p_t']:.4f} | {pa:.4f} | [{lo:+.2f}, {hi:+.2f}] | {pb:.4f} |")
         lines.append("")
 
-    # LLM-only baselines vs each encoder's +LLM variant
-    if llm_baselines and enc_llm:
-        lines += ["## LLM-only baselines vs fine-tuned +LLM", "",
-                  "| LLM baseline | weighted F1 | macro F1 | parsed | compared with | Δ weighted F1 (95% CI, p) |",
-                  "|---|---|---|---|---|---|"]
+    # LLM-only baselines: draws of the same prompt with different example sets (seedN) are grouped
+    if llm_baselines:
+        configs = {}
         for name, (r, path) in sorted(llm_baselines.items()):
-            idx_l, y_l, pred_l, _ = read_preds(path)
-            for model, (_, preds_v) in enc_llm.items():
-                if not np.array_equal(idx_l, preds_v[0][0]):
-                    continue
-                d, lo, hi, pb = bootstrap(y_l, [x[2] for x in preds_v], [pred_l], args.n_boot, rng)["weighted_f1"]
-                lines.append(f"| {name} | {100 * r['test']['test_weighted_f1']:.2f} | {100 * r['test']['test_macro_f1']:.2f} | "
-                             f"{100 * r.get('parse_rate', 1):.1f}% | {model} +LLM | {d:+.2f} [{lo:+.2f}, {hi:+.2f}], p {pb:.4f} |")
+            configs.setdefault(re.sub(r"_seed\d+$", "", name), []).append((name, r, path))
+        lines += ["## LLM-only baselines (mean ± std over example sets)", "",
+                  "| LLM baseline | example sets | weighted F1 | macro F1 | per draw (weighted F1) | parsed |",
+                  "|---|---|---|---|---|---|"]
+        for cfg_name, draws in configs.items():
+            w = np.array([d[1]["test"]["test_weighted_f1"] for d in draws]) * 100
+            mf = np.array([d[1]["test"]["test_macro_f1"] for d in draws]) * 100
+            parsed = np.mean([d[1].get("parse_rate", 1) for d in draws]) * 100
+            lines.append(f"| {cfg_name} | {len(draws)} | {w.mean():.2f} ± {w.std():.2f} | {mf.mean():.2f} ± {mf.std():.2f} | "
+                         f"{', '.join(f'{x:.1f}' for x in w)} | {parsed:.1f}% |")
         lines.append("")
+        if enc_vs_llm:
+            lines += ["## Fine-tuned models vs LLM-only baselines (paired bootstrap; LLM score = mean over example sets)", "",
+                      "| fine-tuned | vs LLM baseline | Δ weighted F1 (95% CI, p) | Δ macro F1 (95% CI, p) |",
+                      "|---|---|---|---|"]
+            for (model, var), preds_v in sorted(enc_vs_llm.items()):
+                for cfg_name, draws in configs.items():
+                    preds_l = [read_preds(d[2]) for d in draws]
+                    if not all(np.array_equal(p[0], preds_v[0][0]) for p in preds_l):
+                        continue
+                    b = bootstrap(preds_v[0][1], [x[2] for x in preds_v], [p[2] for p in preds_l], args.n_boot, rng)
+                    cells = [f"{b[m][0]:+.2f} [{b[m][1]:+.2f}, {b[m][2]:+.2f}], p {b[m][3]:.4f}" for m in ("weighted_f1", "macro_f1")]
+                    lines.append(f"| {model} +{var} | {cfg_name} | {cells[0]} | {cells[1]} |")
+            lines.append("")
 
     # Error analysis: seed ensemble of base vs +LLM
     texts = {}

@@ -18,6 +18,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | 3a | LLM explanations + stance labels for every parent→reply pair | ✅ done, [results](results/phase3a_llm.md): 99.9% parsed | **40 min (measured)** |
 | 3–4 | Ablation: base / +LLM / +stance / +LLM+stance × RoBERTa + DeBERTa, 5 seeds | ✅ done, [results](results/phase3_ablation.md): +LLM = +3.1 F1 (RoBERTa) | **~5 h** |
 | 4b | LLM-only baselines (zero/few-shot) + significance tests + error analysis | ✅ done, [results](results/phase4b_significance.md) | **~30 min** |
+| 4c | Few-shot robustness + hybrid (encoder + few-shot LLM label) | ✅ code ready | **~2.5–3 h** |
 | 5 | CAD + ICHCL generalisation | ⏳ planned | **5–10 h** (spread over 2 weeks) |
 | | **Total** | | **≈ 17–27 h**, about 2–3 weeks of quota |
 
@@ -179,6 +180,31 @@ Uses **both** T4 GPUs (the LLM); the significance tests run on the CPU.
 - per model × variant: Δ vs base, seeds better, paired t-test p (+ Holm-corrected) and a paired bootstrap 95% CI and p;
 - the LLM-only baselines (weighted/macro F1) compared with each encoder's +LLM model;
 - error analysis: per gold class, how many replies the explanation fixes or breaks, confusion before/after, and examples.
+
+## Phase 4c: few-shot robustness + hybrid model (⏱ about 2.5–3 h)
+
+**Notebook:** `kaggle/phase4c_hybrid.ipynb`, named `phase4c-hybrid`.
+**Attach:** `phase3-ablation`, `phase3a-llm` and `phase4b-eval` (all three). Uses **both** GPUs for the LLM, one for training.
+
+Two questions from Phase 4b: is the 2-shot LLM's 61.27 typical, or a lucky draw? And does combining the fine-tuned encoder
+with the few-shot LLM beat both? The hybrid adds the LLM's own predicted label to the input
+(`parent </s></s> reply </s> explanation </s> LLM label: hate`), and the encoder learns when to trust it.
+
+1. Do checklist steps 1–5. The cell must list the attached outputs, the LLM file, and the 2-shot test labels to reuse.
+2. **Smoke test:** run the smoke-test cell (~5–10 min). The 3 printed lines should have `"parse_ok": true`.
+3. Save & Run All.
+
+| Step | Time (estimate) |
+|---|---|
+| Few-shot robustness: 2-shot × 3 more example sets, 4-shot × 3 example sets (713 test pairs each) | ~45–60 min |
+| 2-shot labels for 4,038 train/val pairs (test reused) | ~30–45 min |
+| Hybrid ablation, RoBERTa: +label and +LLM+label × 5 seeds (base and +LLM reused) | ~1 h |
+| Significance report (CPU) | ~2 min |
+
+**Result:** `outputs/significance_weighted_f1.md` now also has:
+- the LLM-only baselines as mean ± std over example sets, with every draw listed;
+- the hybrid variants (`label`, `llm_label`) against base;
+- every fine-tuned variant against the LLM-only baselines (paired bootstrap, LLM score averaged over example sets).
 
 ## Phase 5: generalisation and analysis (⏳ planned, ⏱ 6–12 h, split over sessions)
 

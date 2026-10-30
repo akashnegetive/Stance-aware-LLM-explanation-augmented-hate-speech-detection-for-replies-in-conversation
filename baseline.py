@@ -14,6 +14,8 @@ Ablation features (need an LLM file from generate_llm.py):
   --use_explanation   append the LLM's explanation of the parent->reply relation to the input
   --stance_weight W   multi-task training: extra head predicting the reply's stance toward the parent
                       (LLM labels), loss = CE(hate) + W * CE(stance). W = 0 is exactly the base model.
+  --use_llm_label     hybrid: append the few-shot LLM's own predicted label (llm_classify.py raw.jsonl,
+                      given with --llm_label_file) to the input; the encoder learns when to trust it.
 
 Runs are cached: if <output_dir>/<run>/results.json (or the same file under any --prev_results
 directory) exists with the same training settings, the run is skipped instead of retrained.
@@ -77,22 +79,35 @@ def attach_llm_outputs(rows, split, llm):
         r["stance"] = STANCE_IDS[out["stance"]]
 
 
+def attach_llm_labels(rows, split, labels):
+    """Add the few-shot LLM's predicted label to each row; every gold pair must have one."""
+    missing = [r["idx"] for r in rows if (split, r["idx"]) not in labels]
+    if missing:
+        raise SystemExit(f"LLM label file has no label for {len(missing)} {split} pairs (e.g. idx {missing[:5]}); "
+                         "run llm_classify.py with --splits train val test first")
+    for r in rows:
+        r["llm_label"] = labels[(split, r["idx"])]["pred_label"]
+
+
 def read_llm_file(path):
     llm = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 o = json.loads(line)
-                llm[(o["split"], o["idx"])] = o
+                llm[(o.get("split", "test"), o["idx"])] = o  # early llm_classify files had test only
     return llm
 
 
 class PairDataset(Dataset):
-    def __init__(self, rows, tokenizer, input_mode, max_len, use_explanation=False, with_stance=False):
+    def __init__(self, rows, tokenizer, input_mode, max_len, use_explanation=False, with_stance=False,
+                 use_llm_label=False):
         second = [r["target"] for r in rows]
         if use_explanation:
             # The explanation goes after the reply; truncation removes text from the longer segment first.
             second = [f"{t} {tokenizer.sep_token} {r['explanation']}" for t, r in zip(second, rows)]
+        if use_llm_label:
+            second = [f"{t} {tokenizer.sep_token} LLM label: {r['llm_label']}" for t, r in zip(second, rows)]
         if input_mode == "target":
             self.enc = tokenizer(second, truncation=True, max_length=max_len)
         else:
@@ -145,12 +160,13 @@ class StanceMultiTaskModel(nn.Module):
 
 
 # Arguments that only control where files go; they do not change the trained model.
-NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint", "force", "llm_file"}
+NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint", "force", "llm_file",
+                     "llm_label_file"}
 
 
 # Settings that get a tag in the run name when changed from their default,
 # so tuning and ablation runs never overwrite the default-setting runs.
-TUNABLE_ARGS = {"use_explanation": "expl", "stance_weight": "stance",
+TUNABLE_ARGS = {"use_explanation": "expl", "stance_weight": "stance", "use_llm_label": "lab",
                 "lr": "lr", "batch_size": "bs", "epochs": "ep", "max_len": "len",
                 "warmup_ratio": "wu", "weight_decay": "wd", "patience": "pat", "select_metric": "sel",
                 "limit": "lim"}
@@ -217,6 +233,8 @@ def build_parser():
     p.add_argument("--llm_file", default=None, help="explanations + stance labels from generate_llm.py")
     p.add_argument("--use_explanation", action="store_true", help="append the LLM explanation to the input")
     p.add_argument("--stance_weight", type=float, default=0.0, help="weight of the auxiliary stance loss (0 = off)")
+    p.add_argument("--llm_label_file", default=None, help="raw.jsonl from llm_classify.py --splits train val test")
+    p.add_argument("--use_llm_label", action="store_true", help="append the few-shot LLM's predicted label to the input")
     p.add_argument("--limit", type=int, default=0, help="use only the first N pairs of each split (smoke tests)")
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--keep_checkpoint", action="store_true")
@@ -233,7 +251,9 @@ def main():
     uses_llm = args.use_explanation or args.stance_weight > 0
     if uses_llm and not args.llm_file:
         p.error("--use_explanation / --stance_weight need --llm_file")
-    if uses_llm and args.use_silver:
+    if args.use_llm_label and not args.llm_label_file:
+        p.error("--use_llm_label needs --llm_label_file")
+    if (uses_llm or args.use_llm_label) and args.use_silver:
         p.error("LLM outputs exist only for gold pairs; do not combine them with --use_silver")
 
     set_seed(args.seed)
@@ -262,6 +282,10 @@ def main():
         llm = read_llm_file(args.llm_file)
         for split, rows in (("train", train), ("val", val), ("test", test)):
             attach_llm_outputs(rows, split, llm)
+    if args.use_llm_label:
+        labels = read_llm_file(args.llm_label_file)
+        for split, rows in (("train", train), ("val", val), ("test", test)):
+            attach_llm_labels(rows, split, labels)
     print(f"[{run_name}] train={len(train)} val={len(val)} test={len(test)}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -279,7 +303,8 @@ def main():
         model = StanceMultiTaskModel(model, len(STANCE_IDS), args.stance_weight)
 
     def make_ds(rows):
-        return PairDataset(rows, tokenizer, args.input, args.max_len, args.use_explanation, with_stance)
+        return PairDataset(rows, tokenizer, args.input, args.max_len, args.use_explanation, with_stance,
+                           args.use_llm_label)
 
     ds_train, ds_val, ds_test = make_ds(train), make_ds(val), make_ds(test)
     truncated = sum(len(ids) >= args.max_len for ids in ds_train.enc["input_ids"])

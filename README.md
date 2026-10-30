@@ -9,8 +9,8 @@ using its **parent comment** as context.
 | `run_baselines.sh` | Phase 1/2: reply-only vs parent+reply, 5 seeds |
 | `tune.py` | Phase 1b: learning-rate search, selected on validation |
 | `generate_llm.py` | Phase 3a: LLM explanations + stance labels for every gold pair (resumable) |
-| `ablation.py` | Phase 3–4: base / +LLM / +stance / +LLM+stance for each encoder |
-| `llm_classify.py` | Phase 4b: LLM-only baseline, zero-/few-shot classification (resumable) |
+| `ablation.py` | Phase 3–4: base / +LLM / +stance / +LLM+stance for each encoder; Phase 4c hybrid variants +label / +LLM+label |
+| `llm_classify.py` | Phase 4b/4c: LLM-only baseline, zero-/few-shot over several example sets; labels train/val/test for the hybrid (resumable) |
 | `significance.py` | Phase 4b: paired t-tests (Holm), paired bootstrap, error analysis with examples |
 | `aggregate.py` | mean ± std table over all finished runs |
 | `kaggle/*.ipynb` | One Kaggle notebook per phase; see [KAGGLE_GUIDE.md](KAGGLE_GUIDE.md) |

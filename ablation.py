@@ -1,4 +1,6 @@
 """Phase 3-4 ablation: base / +LLM explanation / +stance / +LLM+stance, for every encoder.
+Hybrid variants (Phase 4c): +label (few-shot LLM's predicted label as input) and +llm_label (explanation + label);
+they need --llm_label_file and are run only when listed in --variants.
 
 Every run goes through baseline.py, so finished runs are cached and an interrupted session
 continues where it stopped. Seeds are the outer loop, so a partial run still covers all variants.
@@ -23,15 +25,20 @@ VARIANTS = {
     "llm": ["--use_explanation"],
     "stance": ["--stance_weight", "{w}"],
     "llm_stance": ["--use_explanation", "--stance_weight", "{w}"],
+    "label": ["--use_llm_label"],
+    "llm_label": ["--use_explanation", "--use_llm_label"],
 }
+DEFAULT_VARIANTS = ["base", "llm", "stance", "llm_stance"]
 
 
 def run_args(model, lr, variant, seed, args):
     a = ["--model", model, "--lr", str(lr), "--input", "context_target", "--seed", str(seed),
          "--select_metric", args.select_metric, "--data_dir", args.data_dir, "--output_dir", args.output_dir]
     a += [x.format(w=args.stance_weight) for x in VARIANTS[variant]]
-    if variant != "base":
+    if "--use_explanation" in a or "--stance_weight" in a:
         a += ["--llm_file", args.llm_file]
+    if "--use_llm_label" in a:
+        a += ["--llm_label_file", args.llm_label_file]
     if args.limit:
         a += ["--limit", str(args.limit), "--epochs", "1"]
     if args.prev_results:
@@ -43,16 +50,19 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--models", nargs="+", default=["roberta-base=2e-5"],
                    help="model=learning_rate pairs (use the learning rate chosen in tuning)")
-    p.add_argument("--variants", nargs="+", default=list(VARIANTS), choices=list(VARIANTS))
+    p.add_argument("--variants", nargs="+", default=DEFAULT_VARIANTS, choices=list(VARIANTS))
     p.add_argument("--seeds", nargs="+", type=int, default=[13, 42, 87, 123, 2024])
     p.add_argument("--stance_weight", type=float, default=0.5)
     p.add_argument("--select_metric", choices=["macro_f1", "weighted_f1"], default="weighted_f1")
     p.add_argument("--llm_file", default="llm/llm_outputs.jsonl")
+    p.add_argument("--llm_label_file", default=None, help="llm_classify.py raw.jsonl with train/val/test labels")
     p.add_argument("--data_dir", default="data/counter_context/data")
     p.add_argument("--output_dir", default="outputs")
     p.add_argument("--prev_results", nargs="*", default=[])
     p.add_argument("--limit", type=int, default=0, help="smoke test: N pairs per split, 1 epoch")
     args = p.parse_args()
+    if any(v in ("label", "llm_label") for v in args.variants) and not args.llm_label_file:
+        p.error("the label / llm_label variants need --llm_label_file")
 
     models = [(m.split("=")[0], float(m.split("=")[1]) if "=" in m else 2e-5) for m in args.models]
     parser = build_parser()
