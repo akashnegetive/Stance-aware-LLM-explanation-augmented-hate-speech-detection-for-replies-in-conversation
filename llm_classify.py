@@ -97,7 +97,8 @@ def main():
     p.add_argument("--splits", nargs="+", default=["test"], choices=["train", "val", "test"])
     p.add_argument("--data_dir", default="data/counter_context/data")
     p.add_argument("--output_dir", default="outputs")
-    p.add_argument("--resume_from", nargs="*", default=[], help="earlier raw.jsonl files of the same run to continue from")
+    p.add_argument("--resume_from", nargs="*", default=[],
+                   help="earlier raw.jsonl files; each run continues from the most complete file in a folder of its name")
     p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--max_new_tokens", type=int, default=20)
     p.add_argument("--max_context_chars", type=int, default=1500)
@@ -122,11 +123,13 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
         raw_path = os.path.join(out_dir, "raw.jsonl")
         if not os.path.exists(raw_path):
-            for prev in args.resume_from:
-                if os.path.isfile(prev) and os.path.basename(os.path.dirname(prev)) == name:
-                    shutil.copyfile(prev, raw_path)
-                    print(f"[{name}] continuing from {prev}")
-                    break
+            # Earlier files of this run (same folder name); the most complete one wins.
+            candidates = [f for f in args.resume_from
+                          if os.path.isfile(f) and os.path.basename(os.path.dirname(f)) == name]
+            if candidates:
+                best = max(candidates, key=lambda f: sum(1 for _ in open(f, encoding="utf-8")))
+                shutil.copyfile(best, raw_path)
+                print(f"[{name}] continuing from {best}")
 
         done = {}
         if os.path.exists(raw_path):
