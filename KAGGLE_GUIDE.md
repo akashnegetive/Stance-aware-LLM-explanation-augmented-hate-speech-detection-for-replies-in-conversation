@@ -18,7 +18,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | 3a | LLM explanations + stance labels for every parent→reply pair | ✅ done, [results](results/phase3a_llm.md): 99.9% parsed | **40 min (measured)** |
 | 3–4 | Ablation: base / +LLM / +stance / +LLM+stance × RoBERTa + DeBERTa, 5 seeds | ✅ done, [results](results/phase3_ablation.md): +LLM = +3.1 F1 (RoBERTa) | **~5 h** |
 | 4b | LLM-only baselines (zero/few-shot) + significance tests + error analysis | ✅ done, [results](results/phase4b_significance.md) | **~30 min** |
-| 4c | Few-shot robustness + hybrid (encoder + few-shot LLM label) | ✅ code ready | **~2.5–3 h** |
+| 4c | Few-shot robustness + hybrid (encoder + few-shot LLM label) | ✅ done, [results](results/phase4c_hybrid.md): hybrid 62.66 (+3.81) | **~2.5–3 h** |
 | 5 | CAD + ICHCL generalisation | ⏳ planned | **5–10 h** (spread over 2 weeks) |
 | | **Total** | | **≈ 17–27 h**, about 2–3 weeks of quota |
 
