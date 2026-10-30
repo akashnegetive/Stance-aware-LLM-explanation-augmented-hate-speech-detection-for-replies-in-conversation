@@ -109,6 +109,23 @@ def softmax(x):
     return e / e.sum(1, keepdims=True)
 
 
+def ensemble(preds):
+    """Seed ensemble of fine-tuned runs: argmax of the mean softmax. Returns (predictions, members)."""
+    return np.mean([softmax(p[3]) for p in preds], 0).argmax(1), len(preds)
+
+
+def majority_vote(preds):
+    """Majority vote over LLM draws (in name order, so the original draw comes first).
+    Ties go to the tied label that appears in the earliest draw. Returns (predictions, members)."""
+    P = np.stack([p[2] for p in preds])
+    out = np.empty(P.shape[1], dtype=int)
+    for i in range(P.shape[1]):
+        counts = np.bincount(P[:, i], minlength=3)
+        tied = set(np.flatnonzero(counts == counts.max()))
+        out[i] = next(int(lab) for lab in P[:, i] if lab in tied)
+    return out, len(preds)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--results_dirs", nargs="+", required=True, help="dirs holding <run>/results.json (globs allowed)")
@@ -134,7 +151,7 @@ def main():
         groups.setdefault(key, {}).setdefault(var, {})[cfg["seed"]] = (r, pred_path)
 
     rng = np.random.default_rng(0)
-    rows, enc_llm, enc_vs_llm = [], {}, {}
+    rows, enc_llm, enc_vs_llm, enc_base = [], {}, {}, {}
     for key, variants in sorted(groups.items()):
         cfg = json.loads(key)
         model = f"{cfg['model']} (lr {cfg['lr']:g})"
@@ -163,6 +180,7 @@ def main():
                 enc_llm[model] = (preds_b, preds_v)
             if var in ("llm", "label", "llm_label"):
                 enc_vs_llm[(model, var)] = preds_v
+            enc_base[model] = preds_b
 
     lines = [f"# Significance tests (test set, selected on validation {args.select_metric})", "",
              f"Paired t-test over seeds (Holm-corrected across the {len(rows)} comparisons) and paired bootstrap over "
@@ -206,6 +224,31 @@ def main():
                     cells = [f"{b[m][0]:+.2f} [{b[m][1]:+.2f}, {b[m][2]:+.2f}], p {b[m][3]:.4f}" for m in ("weighted_f1", "macro_f1")]
                     lines.append(f"| {model} +{var} | {cfg_name} | {cells[0]} | {cells[1]} |")
             lines.append("")
+
+            # Ensemble vs ensemble: the fine-tuned seeds averaged (mean softmax) vs a majority vote of the LLM draws
+            ens = {f"{model} {'base' if var == 'base' else '+' + var}": ensemble(p)
+                   for (model, var), p in sorted({**{(m, "base"): p for m, p in enc_base.items()}, **enc_vs_llm}.items())}
+            votes = {cfg: majority_vote([read_preds(d[2]) for d in draws]) for cfg, draws in configs.items()}
+            y = next(iter(enc_vs_llm.values()))[0][1]
+            lines += ["## Ensembles: fine-tuned seeds (mean softmax) vs majority vote of the LLM's example sets", "",
+                      "| system | members | weighted F1 | macro F1 |", "|---|---|---|---|"]
+            for name, (pred, n) in ens.items():
+                w, mf = f1_scores(y, pred)
+                lines.append(f"| {name} | {n} seeds | {100 * w:.2f} | {100 * mf:.2f} |")
+            for cfg, (pred, n) in votes.items():
+                w, mf = f1_scores(y, pred)
+                lines.append(f"| {cfg} (majority vote) | {n} example sets | {100 * w:.2f} | {100 * mf:.2f} |")
+            lines += ["", "| fine-tuned ensemble | vs LLM vote | Δ weighted F1 (95% CI, p) | Δ macro F1 (95% CI, p) |",
+                      "|---|---|---|---|"]
+            for name, (pred, _) in ens.items():
+                if name.endswith(" base"):
+                    continue
+                for cfg, (vote, _) in votes.items():
+                    b = bootstrap(y, [pred], [vote], args.n_boot, rng)
+                    cells = [f"{b[m][0]:+.2f} [{b[m][1]:+.2f}, {b[m][2]:+.2f}], p {b[m][3]:.4f}" for m in ("weighted_f1", "macro_f1")]
+                    lines.append(f"| {name} | {cfg} | {cells[0]} | {cells[1]} |")
+            lines += ["", "Cost per test pair: +llm and +label need one LLM call (explanation or label), +llm_label two, plus "
+                          "one small encoder pass per seed; the LLM vote needs one LLM call per example set.", ""]
 
     # Error analysis: seed ensemble of base vs +LLM
     texts = {}

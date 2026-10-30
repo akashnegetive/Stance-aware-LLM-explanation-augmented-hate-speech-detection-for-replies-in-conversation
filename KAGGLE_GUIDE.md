@@ -205,6 +205,7 @@ with the few-shot LLM beat both? The hybrid adds the LLM's own predicted label t
 - the LLM-only baselines as mean ± std over example sets, with every draw listed;
 - the hybrid variants (`label`, `llm_label`) against base;
 - every fine-tuned variant against the LLM-only baselines (paired bootstrap, LLM score averaged over example sets).
+- **ensembles**: each variant's 5 seeds combined (mean softmax) against a majority vote of the LLM's example sets.
 
 ## Phase 5: generalisation and analysis (⏳ planned, ⏱ 6–12 h, split over sessions)
 
