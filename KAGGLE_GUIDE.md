@@ -17,7 +17,8 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | 2 | DeBERTa-v3-base, same 10 runs | ✅ done, [results](results/phase2_deberta.md): not better than RoBERTa | **~70 min (measured)** |
 | 3a | LLM explanations + stance labels for every parent→reply pair | ✅ done, [results](results/phase3a_llm.md): 99.9% parsed | **40 min (measured)** |
 | 3–4 | Ablation: base / +LLM / +stance / +LLM+stance × RoBERTa + DeBERTa, 5 seeds | ✅ done, [results](results/phase3_ablation.md): +LLM = +3.1 F1 (RoBERTa) | **~5 h** |
-| 5 | CAD + ICHCL generalisation, LLM baselines, error analysis | ⏳ planned | **6–12 h** (spread over 2 weeks) |
+| 4b | LLM-only baselines (zero/few-shot) + significance tests + error analysis | ✅ code ready | **~30 min** |
+| 5 | CAD + ICHCL generalisation | ⏳ planned | **5–10 h** (spread over 2 weeks) |
 | | **Total** | | **≈ 17–27 h**, about 2–3 weeks of quota |
 
 Check how much quota you have left by clicking your profile picture → **Settings → Quotas**.
@@ -156,6 +157,28 @@ With stance weight 0 the stance model is exactly the base model, so any differen
 per-class F1 for each model × variant.
 If DeBERTa shows `nan` loss, tell me; the fix is to turn off fp16 for that model.
 To try other stance weights later, add `--stance_weight 0.3` or `1.0`. Each weight gets its own run folders.
+
+## Phase 4b: LLM-only baselines, significance tests, error analysis (⏱ about 30 min)
+
+**Notebook:** `kaggle/phase4b_eval.ipynb`, named `phase4b-eval`. **Attach:** `phase3-ablation` (required) and `phase3a-llm`.
+Uses **both** T4 GPUs (the LLM); the significance tests run on the CPU.
+
+1. Do checklist steps 1–5. The cell must print `Ablation results from: [...]` with the phase3-ablation outputs.
+2. **Smoke test:** run the smoke-test cell (~5–10 min, mostly the model download). Most of the 5 printed lines should have
+   `"parse_ok": true` and a label.
+3. Save & Run All.
+
+| Step | Time |
+|---|---|
+| Model download + loading (twice, once per baseline) | ~10 min |
+| Zero-shot on 713 test pairs | ~3–5 min |
+| Few-shot (2 examples per class) on 713 test pairs | ~5–10 min |
+| Significance tests + error analysis (CPU) | ~1–2 min |
+
+**Result:** `outputs/significance_weighted_f1.md` contains:
+- per model × variant: Δ vs base, seeds better, paired t-test p (+ Holm-corrected) and a paired bootstrap 95% CI and p;
+- the LLM-only baselines (weighted/macro F1) compared with each encoder's +LLM model;
+- error analysis: per gold class, how many replies the explanation fixes or breaks, confusion before/after, and examples.
 
 ## Phase 5: generalisation and analysis (⏳ planned, ⏱ 6–12 h, split over sessions)
 

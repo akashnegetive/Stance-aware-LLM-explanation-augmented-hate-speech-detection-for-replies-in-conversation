@@ -59,6 +59,24 @@ def parse(text):
     return stance, expl, False
 
 
+def load_llm(name):
+    tok = AutoTokenizer.from_pretrained(name, padding_side="left")
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.float16, device_map="auto")
+    model.eval()
+    return tok, model
+
+
+def generate(tok, model, conversations, max_new_tokens):
+    """Greedy-decode one answer per chat (a list of {"role", "content"} messages)."""
+    prompts = [tok.apply_chat_template(m, tokenize=False, add_generation_prompt=True) for m in conversations]
+    enc = tok(prompts, return_tensors="pt", padding=True).to(model.device)
+    with torch.no_grad():
+        gen = model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=tok.pad_token_id)
+    return tok.batch_decode(gen[:, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+
+
 def load_pairs(data_dir, splits, limit=0):
     pairs = []
     for split in splits:
@@ -105,17 +123,12 @@ def main():
     if not todo:
         return
 
-    tok = AutoTokenizer.from_pretrained(args.model, padding_side="left")
-    if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.float16, device_map="auto")
-    model.eval()
+    tok, model = load_llm(args.model)
 
-    def prompt(x):
-        msgs = [{"role": "system", "content": SYSTEM},
+    def messages(x):
+        return [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": PROMPT.format(context=x["context"][:args.max_context_chars],
                                                           target=x["target"])}]
-        return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
     # Similar lengths in a batch waste less padding.
     todo.sort(key=lambda x: len(x["context"]) + len(x["target"]))
@@ -123,11 +136,7 @@ def main():
     with open(args.out, "a", encoding="utf-8") as f:
         for b in range(0, len(todo), args.batch_size):
             batch = todo[b:b + args.batch_size]
-            enc = tok([prompt(x) for x in batch], return_tensors="pt", padding=True).to(model.device)
-            with torch.no_grad():
-                gen = model.generate(**enc, max_new_tokens=args.max_new_tokens, do_sample=False,
-                                     pad_token_id=tok.pad_token_id)
-            texts = tok.batch_decode(gen[:, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+            texts = generate(tok, model, [messages(x) for x in batch], args.max_new_tokens)
             for x, text in zip(batch, texts):
                 stance, expl, ok = parse(text)
                 n_bad += not ok

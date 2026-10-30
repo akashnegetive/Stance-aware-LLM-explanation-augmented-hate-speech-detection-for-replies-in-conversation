@@ -10,6 +10,8 @@ using its **parent comment** as context.
 | `tune.py` | Phase 1b: learning-rate search, selected on validation |
 | `generate_llm.py` | Phase 3a: LLM explanations + stance labels for every gold pair (resumable) |
 | `ablation.py` | Phase 3–4: base / +LLM / +stance / +LLM+stance for each encoder |
+| `llm_classify.py` | Phase 4b: LLM-only baseline, zero-/few-shot classification (resumable) |
+| `significance.py` | Phase 4b: paired t-tests (Holm), paired bootstrap, error analysis with examples |
 | `aggregate.py` | mean ± std table over all finished runs |
 | `kaggle/*.ipynb` | One Kaggle notebook per phase; see [KAGGLE_GUIDE.md](KAGGLE_GUIDE.md) |
 
