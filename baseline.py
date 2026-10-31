@@ -139,20 +139,21 @@ class StanceMultiTaskModel(nn.Module):
     this is exactly the base model; the stance head only adds a training signal.
     """
 
-    def __init__(self, base, num_stance, stance_weight):
+    def __init__(self, base, num_stance, stance_weight, class_weight=None):
         super().__init__()
         self.base = base
         hidden = base.config.hidden_size
         self.stance_head = nn.Sequential(
             nn.Dropout(0.1), nn.Linear(hidden, hidden), nn.Tanh(), nn.Dropout(0.1), nn.Linear(hidden, num_stance))
         self.stance_weight = stance_weight
+        self.register_buffer("class_weight", class_weight, persistent=False)
 
     def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, stance_labels=None):
         extra = {"token_type_ids": token_type_ids} if token_type_ids is not None else {}
         out = self.base(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True, **extra)
         loss = None
         if labels is not None:
-            loss = nn.functional.cross_entropy(out.logits, labels)
+            loss = nn.functional.cross_entropy(out.logits, labels, weight=self.class_weight)
             if stance_labels is not None:
                 stance_logits = self.stance_head(out.hidden_states[-1][:, 0])
                 loss = loss + self.stance_weight * nn.functional.cross_entropy(stance_logits, stance_labels)
@@ -169,7 +170,7 @@ NON_TRAINING_ARGS = {"data_dir", "output_dir", "prev_results", "keep_checkpoint"
 TUNABLE_ARGS = {"dataset": "ds-", "use_explanation": "expl", "stance_weight": "stance", "use_llm_label": "lab",
                 "lr": "lr", "batch_size": "bs", "epochs": "ep", "max_len": "len",
                 "warmup_ratio": "wu", "weight_decay": "wd", "patience": "pat", "select_metric": "sel",
-                "limit": "lim"}
+                "class_weights": "cw-", "limit": "lim"}
 
 
 def training_config(args):
@@ -204,6 +205,27 @@ def find_cached_run(run_name, args, defaults):
     return None
 
 
+class WeightedLossTrainer(Trainer):
+    """Trainer whose classification loss weights each class (for rare classes such as CAD counter-speech)."""
+
+    def __init__(self, *args, class_weight=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weight = class_weight
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        outputs = model(**{k: v for k, v in inputs.items() if k != "labels"})
+        loss = nn.functional.cross_entropy(outputs.logits.float(), inputs["labels"],
+                                           weight=self.class_weight.to(outputs.logits.device))
+        return (loss, outputs) if return_outputs else loss
+
+
+def class_weights(labels, mode):
+    """Per-class loss weights from training-label counts: 'balanced' = N / (K * n_c); 'sqrt' = its square root."""
+    counts = np.bincount(labels, minlength=len(LABEL_NAMES)).astype(float)
+    w = counts.sum() / (len(counts) * np.maximum(counts, 1))
+    return torch.tensor(np.sqrt(w) if mode == "sqrt" else w, dtype=torch.float)
+
+
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=-1)
@@ -236,6 +258,8 @@ def build_parser():
     p.add_argument("--llm_file", default=None, help="explanations + stance labels from generate_llm.py")
     p.add_argument("--use_explanation", action="store_true", help="append the LLM explanation to the input")
     p.add_argument("--stance_weight", type=float, default=0.0, help="weight of the auxiliary stance loss (0 = off)")
+    p.add_argument("--class_weights", choices=["none", "balanced", "sqrt"], default="none",
+                   help="weight the classification loss by inverse class frequency (balanced) or its square root")
     p.add_argument("--llm_label_file", default=None, help="raw.jsonl from llm_classify.py --splits train val test")
     p.add_argument("--use_llm_label", action="store_true", help="append the few-shot LLM's predicted label to the input")
     p.add_argument("--limit", type=int, default=0, help="use only the first N pairs of each split (smoke tests)")
@@ -301,9 +325,13 @@ def main():
     # transformers v5 loads weights in the dtype they were saved in (fp16 for DeBERTa-v3); mixed-precision
     # training needs fp32 master weights, otherwise it fails with "Attempting to unscale FP16 gradients".
     model = model.float()
+    cw = class_weights([r["label"] for r in train], args.class_weights) if args.class_weights != "none" else None
+    if cw is not None:
+        print(f"[{run_name}] class weights ({args.class_weights}): "
+              + ", ".join(f"{LABEL_NAMES[i]} {w:.2f}" for i, w in enumerate(cw.tolist())))
     with_stance = args.stance_weight > 0
     if with_stance:
-        model = StanceMultiTaskModel(model, len(STANCE_IDS), args.stance_weight)
+        model = StanceMultiTaskModel(model, len(STANCE_IDS), args.stance_weight, cw)
 
     def make_ds(rows):
         return PairDataset(rows, tokenizer, args.input, args.max_len, args.use_explanation, with_stance,
@@ -339,7 +367,9 @@ def main():
         report_to="none",
     )
 
-    trainer = Trainer(
+    # Without a stance head, class weights need a Trainer that computes the weighted loss itself.
+    extra = {"class_weight": cw} if cw is not None and not with_stance else {}
+    trainer = (WeightedLossTrainer if extra else Trainer)(**extra,
         model=model,
         args=training_args,
         train_dataset=ds_train,

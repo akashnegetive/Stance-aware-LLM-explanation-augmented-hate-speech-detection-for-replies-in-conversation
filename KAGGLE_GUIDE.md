@@ -20,6 +20,7 @@ Kaggle gives about **30 GPU hours per week**, with at most **12 hours per sessio
 | 4b | LLM-only baselines (zero/few-shot) + significance tests + error analysis | ✅ done, [results](results/phase4b_significance.md) | **~30 min** |
 | 4c | Few-shot robustness + hybrid (encoder + few-shot LLM label) | ✅ done, [results](results/phase4c_hybrid.md): hybrid 62.66 (+3.81) | **~2.5–3 h** |
 | 5 | Generalisation to CAD (second Reddit dataset): LLM outputs, LLM baselines, hybrid ablation | ✅ done, [results](results/phase5_cad.md): +LLM +1.9, hybrid +2.2 | **~2.5–3 h** |
+| 5b | CAD: class-weighted loss for counter-speech + context-dependent analysis | ✅ code ready | **~1 h** |
 | | **Total** | | **≈ 17–27 h**, about 2–3 weeks of quota |
 
 Check how much quota you have left by clicking your profile picture → **Settings → Quotas**.
@@ -236,3 +237,20 @@ Time scales with the number of pairs (N, all splits) and training pairs (N_train
 
 **Result:** `outputs/significance_weighted_f1.md` has the same tables as Phase 4c, for CAD (models marked `[cad]`).
 
+## Phase 5b: CAD with class-weighted loss + context-dependent analysis (⏱ about 1 h)
+
+**Notebook:** `kaggle/phase5b_cad_extra.ipynb`, named `phase5b-cad`. **Attach:** `phase5-cad`.
+
+On CAD no model predicts counter-speech (74 of 2,934 training pairs). `--class_weights balanced` weights the loss by inverse
+class frequency (hate 0.70, neutral 0.67, counter 13.2 on CAD; `sqrt` is a milder 0.84 / 0.82 / 3.64). This notebook trains
+base, +LLM and +LLM+label with these weights (3 seeds; no LLM work is repeated) and reruns the significance report, which now
+also compares every variant with base on the **context-dependent** test pairs (CAD's annotation: the label needs the parent) and on the rest.
+
+1. Do checklist steps 1–5; the inputs cell must find the CAD pairs, the LLM file and the labels.
+2. Save & Run All.
+3. Paste `outputs/ablation_weighted_f1.md` (per-class F1, especially counter) and `outputs/significance_weighted_f1.md`.
+
+| Step | Time |
+|---|---|
+| 9 class-weighted training runs (3 variants × 3 seeds) | ~45–60 min |
+| Significance report (CPU) | ~2 min |

@@ -13,6 +13,7 @@ using its **parent comment** as context.
 | `llm_classify.py` | Phase 4b/4c: LLM-only baseline, zero-/few-shot over several example sets; labels train/val/test for the hybrid (resumable) |
 | `prepare_cad.py` | Phase 5: CAD → parent/reply pairs in the same format (`--data_dir … --dataset cad` everywhere) |
 | `significance.py` | Phase 4b: paired t-tests (Holm), paired bootstrap, error analysis with examples |
+| `--class_weights` (baseline/ablation) | balanced / sqrt inverse-frequency loss weights for rare classes (Phase 5b) |
 | `aggregate.py` | mean ± std table over all finished runs |
 | `kaggle/*.ipynb` | One Kaggle notebook per phase; see [KAGGLE_GUIDE.md](KAGGLE_GUIDE.md) |
 

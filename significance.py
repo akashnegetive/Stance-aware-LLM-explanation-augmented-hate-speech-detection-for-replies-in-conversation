@@ -151,10 +151,11 @@ def main():
         groups.setdefault(key, {}).setdefault(var, {})[cfg["seed"]] = (r, pred_path)
 
     rng = np.random.default_rng(0)
-    rows, enc_llm, enc_vs_llm, enc_base = [], {}, {}, {}
+    rows, enc_llm, enc_vs_llm, enc_base, all_variants = [], {}, {}, {}, {}
     for key, variants in sorted(groups.items()):
         cfg = json.loads(key)
-        model = f"{cfg['model']} (lr {cfg['lr']:g})" + (f" [{cfg['dataset']}]" if cfg["dataset"] != "yu2022" else "")
+        model = (f"{cfg['model']} (lr {cfg['lr']:g})" + (f" [{cfg['dataset']}]" if cfg["dataset"] != "yu2022" else "")
+                 + (f" [class weights: {cfg['class_weights']}]" if cfg.get("class_weights", "none") != "none" else ""))
         if "base" not in variants:
             print(f"skipping {model}: no base runs")
             continue
@@ -181,6 +182,7 @@ def main():
             if var in ("llm", "label", "llm_label"):
                 enc_vs_llm[(model, var)] = preds_v
             enc_base[model] = preds_b
+            all_variants[(model, var)] = (preds_b, preds_v)
 
     lines = [f"# Significance tests (test set, selected on validation {args.select_metric})", "",
              f"Paired t-test over seeds (Holm-corrected across the {len(rows)} comparisons) and paired bootstrap over "
@@ -308,6 +310,40 @@ def main():
                     lines.append(f"| {N[c]} | {N[eb[i]]} → {N[ev[i]]} | {clean(t['context'], 160)} | {clean(t['target'], 160)} | "
                                  f"{e.get('stance', '')}: {clean(e.get('explanation', ''), 200)} |")
             lines.append("")
+
+    # Context-dependent pairs (CAD marks pairs whose label needs the previous comment)
+    ctx = {i: bool(t.get("context_dependent")) for i, t in texts.items() if "context_dependent" in t}
+    if ctx and all_variants:
+        lines += ["## Context-dependent vs other test pairs",
+                  "",
+                  "Pairs whose gold label needs the parent comment (dataset annotation) vs the rest. Δ = variant − base, "
+                  "mean over seeds; paired bootstrap within each subset.", "",
+                  "| model | variant | subset | pairs | base weighted F1 | variant weighted F1 | Δ weighted F1 (95% CI, p) "
+                  "| Δ macro F1 (p) |", "|---|---|---|---|---|---|---|---|"]
+        for (model, var), (preds_b, preds_v) in sorted(all_variants.items()):
+            idx, y = preds_b[0][0], preds_b[0][1]
+            if not all(int(i) in ctx and int(texts[int(i)]["label"]) == int(c) for i, c in zip(idx, y)):
+                continue  # predictions from another dataset
+            dep = np.array([ctx[int(i)] for i in idx])
+            for name, mask in (("context-dependent", dep), ("other", ~dep)):
+                ys = y[mask]
+                b = bootstrap(ys, [p[2][mask] for p in preds_v], [p[2][mask] for p in preds_b], args.n_boot, rng)
+                base_w = 100 * np.mean([f1_scores(ys, p[2][mask])[0] for p in preds_b])
+                var_w = 100 * np.mean([f1_scores(ys, p[2][mask])[0] for p in preds_v])
+                d, lo, hi, pb = b["weighted_f1"]
+                lines.append(f"| {model} | {var} | {name} | {int(mask.sum())} | {base_w:.2f} | {var_w:.2f} | "
+                             f"{d:+.2f} [{lo:+.2f}, {hi:+.2f}], p {pb:.4f} | {b['macro_f1'][0]:+.2f} (p {b['macro_f1'][3]:.4f}) |")
+        ref_idx = next(iter(all_variants.values()))[0][0][0]
+        llm_rows = []
+        for name, (r, path) in sorted(llm_baselines.items()):
+            idx_l, y_l, pred_l, _ = read_preds(path)
+            if not np.array_equal(idx_l, ref_idx) or not all(int(i) in ctx for i in idx_l):
+                continue
+            dep = np.array([ctx[int(i)] for i in idx_l])
+            llm_rows.append(f"| {name} | " + " | ".join(f"{100 * f1_scores(y_l[m], pred_l[m])[0]:.2f}" for m in (dep, ~dep)) + " |")
+        if llm_rows:
+            lines += ["", "| LLM baseline | weighted F1, context-dependent | weighted F1, other |", "|---|---|---|", *llm_rows]
+        lines.append("")
 
     report = "\n".join(lines)
     print(report)
