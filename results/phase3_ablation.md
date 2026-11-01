@@ -21,7 +21,7 @@ LLM outputs come from Phase 3a: Qwen2.5-7B-Instruct, frozen, never shown the lab
 ## Observations
 - **LLM explanations help both encoders**: +3.12 weighted / +3.31 macro F1 for RoBERTa and +2.06 / +2.25 for DeBERTa.
   The largest gain is on the hate class (RoBERTa 52.0 → 57.6).
-- RoBERTa + LLM (61.97 weighted F1) exceeds the paper's reported parent + reply result (0.61, secondary source; verify)
+- RoBERTa + LLM (61.97 weighted F1) exceeds the paper's parent + reply result (0.61, Yu et al. 2022, Table 6)
   and our own parent + reply baseline (58.86).
 - **Coarse stance gives little or nothing**: +0.02 for RoBERTa, +1.31 for DeBERTa. This matches Phase 3a, where hate and
   counter replies both mostly "oppose" their parent (84% and 86%), so stance cannot separate the hardest pair.

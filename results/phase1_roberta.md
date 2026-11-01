@@ -10,13 +10,22 @@ Model selection used validation macro-F1 with early stopping (patience 3). Total
 
 ## Comparison with Yu, Blanco & Hong (NAACL 2022)
 
-The paper reports weighted F1. Its values below are taken from a secondary summary; verify them against the paper's results table before citing.
+Paper values are from Yu, Blanco & Hong (NAACL 2022), Table 6 (test split, RoBERTa-base, weighted F1), checked against the paper.
+
+| Paper setting (Table 6) | hate F1 | counter F1 | neutral F1 | weighted F1 |
+|---|---|---|---|---|
+| Trained with Target | 0.56 | 0.38 | 0.69 | 0.58 |
+| Trained with Parent_Target | 0.59 | 0.44 | 0.70 | 0.61 |
+| Parent_Target + Silver + stance pretraining (paper's best) | 0.60 | 0.53 | 0.71 | 0.64 (0.63 ± 0.01 over seeds, Table 10) |
+
+Notes from the paper: the plain Parent_Target gain (0.61 vs 0.58) carries **no significance mark** in Table 6 (McNemar's test marks only the Silver / pretraining rows); Table 6 rows appear to be single runs (multiple seeds are reported only in Table 10); training used a fixed number of epochs (5 for Target), batch 16, lr 1e-5, dropout 0.5 and an extra 768-unit tanh layer (Table 11, jiant implementation).
 
 | Setting | Paper | Ours |
 |---|---|---|
 | Reply only (weighted F1) | 0.58 | 59.01 ± 1.83 |
 | Parent + reply (weighted F1) | 0.61 | 58.85 ± 0.94 |
 | Parent + reply, per class (hate / neutral / counter) | 0.59 / 0.70 / 0.44 | 52.6 / 67.6 / 46.9 |
+| Reply only, per class (hate / neutral / counter) | 0.56 / 0.69 / 0.38 | 53.8 / 67.9 / 45.8 |
 
 ## Observations
 - The reply-only result reproduces the paper, so the data, training and evaluation pipeline are correct.
@@ -24,4 +33,4 @@ The paper reports weighted F1. Its values below are taken from a secondary summa
 - Simply concatenating the parent comment did **not** improve over reply-only here: the difference is within seed variance.
   Context helped *counter* (+1.2 F1) and hurt *hate* (−1.1 F1).
 - Truncation is not the cause: only 1 of 4,751 parent+reply pairs exceeds 256 tokens.
-- Our parent+reply score is about 2 weighted-F1 points below the paper; hyperparameter tuning is still to be done.
+- Our parent+reply score is about 2 weighted-F1 points below the paper's single-run 0.61. The paper's own parent+reply gain was not significant, and its setup differs (fixed epochs, dropout 0.5, extra layer); ours is the mean of 5 seeds.
